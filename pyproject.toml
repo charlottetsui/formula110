@@ -5,7 +5,9 @@ description = "Small Ursina 3D racing starter project"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "numpy>=2.4.6",
     "panda3d==1.10.13",
+    "torch>=2.13.0",
     "ursina<8",
 ]
 
@@ -17,7 +19,7 @@ requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["racing", "controllers"]
+module-name = ["racing", "controllers", "training"]
 
 [dependency-groups]
 dev = [
@@ -39,6 +41,17 @@ pythonVersion = "3.11"
 pythonPlatform = "Darwin"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = false
+
+# torch's public API (Tensor ops, autograd, optim) resolves to Unknown in
+# many call chains even with reportMissingTypeStubs off, the same way
+# panda3d/ursina do elsewhere in this project. Relax only the "Unknown"
+# propagation rules for the SAC training code so real bugs (unreachable
+# code, wrong attribute access, bad returns) still fail strict checking.
+[[tool.pyright.executionEnvironments]]
+root = "src/training"
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
 
 [tool.ruff]
 line-length = 120

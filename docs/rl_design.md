@@ -77,7 +77,10 @@ reward = w_progress * forward_progress_proxy
 - `wall_proximity_penalty` ramps up as `wall_lidar.front_m` /
   `front_left_m` / `front_right_m` shrink below a threshold, so the policy
   learns to slow or steer away before contact, not just after.
-- Large one-time penalty when `contact.damage` reaches `1.0` (elimination).
+- The `damage_this_tick - damage_prev_tick` term already scales up on its
+  own for a hard impact that jumps damage a lot in one tick; there's no
+  separate discrete penalty for reaching exactly `1.0` (see §2.4 for why
+  that exact value is never observed anyway).
 
 Because this is a *proxy*, every evaluation run additionally reports the
 simulator's own public race statistics (`HeadToHeadTeamRaceStats`:
@@ -92,15 +95,36 @@ There is no explicit `done` flag. Two public signals stand in for it:
 
 - **New episode marker:** `sensors.tick == 0` on a fresh snapshot means the
   simulator just (re)started tracking this car (SENSORS.md: "Starts at `0`
-  for a new car/controller run"). The controller uses this to close out the
-  previous transition with `done=True` and reset its internal previous-obs
-  state.
-- **Elimination:** `contact.damage >= 1.0`. Detected a tick early via the
-  damage delta so the terminal transition carries the penalty.
+  for a new car/controller run"). In self-play (§3), every car in every
+  race already gets a brand-new `TrainableController` instance via
+  `copy_for_car`, so `previous_observation` is already `None` whenever
+  `tick == 0` is seen in practice; this signal is kept mainly for a future
+  training loop that reuses one controller instance across more than one
+  car life.
+- **Near-elimination, not exact elimination:** the design originally
+  assumed `contact.damage >= 1.0` was observable a tick early via the
+  damage delta. It isn't: `run_headless_head_to_head` stops calling a car's
+  controller once its `eliminated` flag is set, and that flag is set from
+  damage applied *after* the tick whose sensors the controller last saw
+  (`apply_wall_impact_damage` runs after the per-tick control loop, before
+  the *next* tick's sensors would reflect it — see
+  [`head_to_head.py`](../src/racing/race/head_to_head.py)). The exact
+  terminal `damage == 1.0` reading is therefore never delivered to
+  `__call__`. `src/training/reward.py` instead treats
+  `contact.damage >= NEAR_ELIMINATION_DAMAGE` (`0.9`) as terminal — an
+  approximation, not the literal last tick, but close enough that the
+  bootstrap term it zeroes out (`(1 - done) * target_Q`) is negligible
+  either way. Documented here as a correction to the original assumption;
+  see `docs/lab_notebook.md`'s 2026-08-31 entry for how this was found.
 
 A round timeout (`--round-seconds`, default 30s) also ends an episode
-without a discrete signal in-band; the controller times this out using its
-own tick counter against the configured `fixed_delta_seconds`.
+without a discrete signal in-band; because each race's controller instances
+are freshly created and simply stop being called when the round ends, the
+final in-progress transition of a race is never explicitly closed with
+`done=True` (it stays `done=False`, i.e. treated as if the episode
+continued). This is a known, accepted simplification for the minimum
+experiment — see the refinement plan (§6) for revisiting it if it turns out
+to bias value estimates near the round boundary.
 
 ## 3. Self-play training architecture
 
