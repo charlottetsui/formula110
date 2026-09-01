@@ -602,3 +602,190 @@ without running the proposed causal test first.
   so evaluation seeds are genuinely held out -- not urgent given the
   current findings are about qualitative behavior, not close numeric
   comparisons, but worth fixing before final leaderboard evaluation.
+
+---
+
+## 2026-09-01 (continued, 4)
+
+**Participants and contributions:** Charlotte Tsui — directed continued
+refinement of the reward, prioritizing speed and safety. Claude Code (AI
+agent) — ran two more single-variable causal tests plus a diagnostic run,
+all with training seed `909` held fixed for a clean causal chain, and
+found the second test's null result pointed to a training/eval scenario-
+coverage gap rather than the reward change being wrong.
+
+**Question or objective:** Fix the "do nothing" freeze found in the
+previous entry (seed 909) without sacrificing speed or safety.
+
+**What we investigated or changed:**
+
+- **Causal test 1:** added `WEIGHT_IDLE = 0.2` to `src/training/reward.py`
+  (penalizes `abs(speed_mps) < IDLE_SPEED_MPS = 0.5`), leaving every
+  safety-side term (`WEIGHT_DAMAGE`, `WEIGHT_WALL_PROXIMITY`,
+  `WEIGHT_CONTACT`) untouched on purpose, per the "prioritize speed and
+  safety" instruction — the idle penalty targets speed without weakening
+  safety incentives. Re-ran with seed `909` held fixed (same
+  races/round-length/buffer-capacity as the prior seed-909 run).
+- **Causal test 2:** added `WEIGHT_TERMINAL_PENALTY = 10.0` -- a one-time
+  penalty on the tick that crosses `NEAR_ELIMINATION_DAMAGE`, on top of
+  the existing per-tick `WEIGHT_DAMAGE * damage_delta` term -- to
+  counteract a hypothesized exploit where dying early escapes the new
+  idle penalty's ongoing cost. Re-ran again with seed `909` held fixed.
+- **Diagnostic run:** when causal test 2 produced byte-identical output to
+  causal test 1, wrote a one-off script reproducing the exact training
+  call with a `sensor_sample_callback` logging max `contact.damage` and
+  `is_terminal()` counts per side, to find out why.
+- Added `tests/test_training_reward.py` coverage for both new terms
+  (idle-speed penalty and its threshold boundary, and the terminal-tick
+  penalty).
+- Updated `docs/rl_design.md` §6 item 0 with the full causal chain and a
+  revised understanding (item 0 and item 1 "training budget" are no
+  longer separable).
+
+**Evidence:**
+- Sources or documentation: none beyond the experiments' own output.
+- AI-agent assistance: Claude Code did not accept the causal-test-2 null
+  result as "the fix doesn't work" without checking why -- diffed
+  `eval_results.json` and `metrics.csv` between the two runs directly
+  (confirmed byte-identical), then wrote and ran the diagnostic script
+  before writing any conclusion. This is the same "verify the surprising
+  number before reporting it" discipline as the earlier pace-normalization
+  finding, applied to a code change instead of a raw metric this time. Ran
+  `ruff`, `pyright` (strict, 0 errors), and `pytest -q` (141 passed) before
+  and after both reward changes.
+- Commits or code: `src/training/reward.py` (`WEIGHT_IDLE`,
+  `IDLE_SPEED_MPS`, `WEIGHT_TERMINAL_PENALTY`), `tests/test_training_reward.py`
+  (3 new tests), `docs/rl_design.md` §6.
+- Experiment output: `experiments/2026-09-01_idle-penalty-seed909/`,
+  `experiments/2026-09-01_terminal-penalty-seed909/` (each with
+  `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+- Causal test 1 (idle penalty) fixed the freeze cleanly: race wins vs.
+  `crash_fast` 5/10 -> 10/10, avg scored distance 2.2m -> 31.8m,
+  low-progress time 26.8% -> 4.8%. But it overcorrected: `damage == 1.0`
+  (full elimination) in **all 10** evaluation races (vs. 0/10 before), max
+  speed up to 11-19 m/s (vs. ~4-5 m/s before). Off-track/wall-
+  contact/low-progress times looked *better* in isolation, but that's an
+  artifact of eliminated cars stopping mid-race -- those trackers simply
+  had less time left to accumulate before the car died.
+- Causal test 2 (terminal penalty) produced **zero measurable effect** --
+  outputs byte-identical to causal test 1's. The diagnostic run explained
+  why: max damage seen during the entire 60s training run was 0.196
+  (challenger) and 0.325 (incumbent) -- nowhere near the 0.9 terminal
+  threshold. `is_terminal()` was `True` on **zero** ticks during training.
+  The policy that reaches full elimination in every 120s evaluation race
+  has never once, during training, experienced the conditions that lead
+  to its own death.
+- This reframes the whole "training budget vs. reward shape" question
+  from the earlier entries: they were never actually separable variables.
+  A reward term that's supposed to discourage an outcome literally cannot
+  do so if training never reaches that outcome -- the fix needs both the
+  reward change (already made) and a longer training round (not yet
+  tried at a length matching evaluation).
+
+**Decision and rationale:** Keep both `WEIGHT_IDLE` and
+`WEIGHT_TERMINAL_PENALTY` in the reward -- the idle penalty is proven to
+work as intended, and the terminal penalty is untested (not disproven) and
+should matter once training rounds are long enough to reach it. Do not
+adopt either seed-909 checkpoint from this entry (both are unacceptable:
+one freezes, one dies every race). Updated `docs/rl_design.md` §6 to merge
+items 0 and 1 conceptually -- they're the same underlying problem.
+
+**Next steps:**
+- Re-run with seed `909` held fixed, current reward (idle + terminal
+  penalties), and training round length extended toward or past the 120s
+  evaluation length, so the terminal penalty gets a chance to actually
+  apply during training. This is the direct, motivated next experiment.
+- Once that produces a policy that neither freezes nor dies every race,
+  re-check the repeated-seed question again (seed 110) to see if the
+  combined fix generalizes, not just works for seed 909.
+- Still pending from earlier entries: training/eval seed overlap, held-out
+  seed robustness, opponent traffic.
+
+---
+
+## 2026-09-01 (continued, 5)
+
+**Participants and contributions:** Charlotte Tsui — none this entry
+(continuation of the same "proceed, continue refining" instruction).
+Claude Code (AI agent) — ran the proposed next causal test, found the
+hypothesis was wrong, verified it wasn't a simulator bug, and paused the
+experiment chain to report back rather than continuing to guess.
+
+**Question or objective:** Test the previous entry's proposed fix: extend
+training round length so the terminal penalty (which never fired at 60s
+training) gets a chance to actually apply.
+
+**What we investigated or changed:** Re-ran with seed `909` held fixed,
+same reward as the previous two causal tests (idle + terminal penalties),
+`--round-seconds 60 -> 120` (matching the eval length),
+`--buffer-capacity 150000 -> 200000`. Directory:
+`experiments/2026-09-01_longer-training-round-seed909/`.
+
+**Evidence:**
+- Sources or documentation: read `reset_robot_vehicle` in
+  `src/racing/race/runtime.py` to check whether the extreme speed reading
+  could be a marshal-reset artifact.
+- AI-agent assistance: before writing up the 40.5 m/s figure as a real
+  finding, Claude Code checked whether it could be a bug — read the reset
+  code directly rather than assuming, and confirmed it correctly zeroes
+  linear/angular velocity and clears forces on every reset, ruling out a
+  spurious velocity-spike explanation. Ran `ruff`/`pyright`/`pytest`
+  unchanged (no code changed this entry, only experiment configuration).
+- Commits or code: `docs/rl_design.md` §6 item 0 (added causal test 3 and
+  a revised, hedged hypothesis).
+- Experiment output:
+  `experiments/2026-09-01_longer-training-round-seed909/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** The hypothesis was wrong. Elimination rate stayed
+at 10/10 (unchanged from the 60s-training run), and average max speed got
+*worse* — 40.5 m/s, versus 15.9 m/s at 60s training and ~6.9 m/s for the
+seed-110 reference. Off-track/wall-contact/low-progress times all dropped
+to under 1% of the race, consistent with crashing almost immediately
+(probably flooring the throttle in a straight line). Self-play's own
+in-training distance was large this time (853-913m per 120s race, vs.
+~0m in every earlier run's printed self-play total) — the training
+process itself looks like it's exploring real, fast racing behavior, but
+the frozen deterministic evaluation policy is far more extreme and
+dangerous than what training self-play showed. Best current guess: a
+train/eval behavior mismatch, where the deterministic (no exploration
+noise) action at evaluation time diverges from what was actually sampled
+and experienced during noisy training — not confirmed.
+
+**Decision and rationale:** Do not adopt this checkpoint (worse than the
+prior one on the metric that matters most for safety). Do not continue
+guessing at reward/config tweaks for seed 909 without more diagnosis --
+four experiments deep into this causal-test chain (idle penalty, terminal
+penalty, longer training round, this one) is a reasonable point to pause
+and get direction rather than keep iterating blind. The **best checkpoint
+from all of today's work remains `2026-09-01_scaled-training-budget`**
+(training seed 110): 0/10 eliminations, ~6.9 m/s max speed, 10/10 wins vs.
+`crash_fast`, first completed lap. `controllers.sac_candidate` currently
+auto-selects today's newest (and most dangerous) checkpoint by file time --
+flagged this explicitly so it isn't watched by accident.
+
+**Next steps (options, not yet decided):**
+1. Investigate the stochastic-training-vs-deterministic-eval mismatch
+   directly -- e.g. compare the entropy/spread of sampled training actions
+   against the deterministic eval action at similar states, or evaluate
+   with `deterministic=False` (sampled, like training) instead of the mean
+   action to see if the extreme behavior is eval-only.
+2. Try seed 110 (the "good" seed) through the same idle+terminal reward
+   change, to see whether the safety regression is specific to seed 909's
+   particular training trajectory or a general property of the new reward
+   terms.
+3. Step back from single-seed causal tests and run a small sweep (3-5
+   seeds) at the current best-known config to get a real sense of the
+   outcome distribution, rather than continuing to chase one seed's
+   specific pathology.
+4. Consider a hard action/speed cap at the controller level (not just a
+   reward penalty) as a safety backstop independent of what the reward
+   teaches -- reward shaping alone has now twice produced an unsafe
+   policy for this seed.

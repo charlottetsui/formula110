@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from racing.student.api import CameraSensors, ContactSensors, LidarSensors, OdometrySensors, RobotSensors
-from training.reward import NEAR_ELIMINATION_DAMAGE, is_new_episode, is_terminal, step_reward
+from training.reward import IDLE_SPEED_MPS, NEAR_ELIMINATION_DAMAGE, is_new_episode, is_terminal, step_reward
 
 
 def test_step_reward_rewards_forward_progress_aligned_with_track_heading() -> None:
@@ -48,6 +48,32 @@ def test_step_reward_penalizes_close_walls() -> None:
     wall_ahead = RobotSensors(wall_lidar=LidarSensors(distances_m=tuple(1.0 for _ in range(7))))
 
     assert step_reward(previous, wall_ahead) < step_reward(previous, open_track)
+
+
+def test_step_reward_penalizes_standing_still() -> None:
+    previous = RobotSensors(dt_s=1 / 60)
+    idle = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=0.0))
+    slow_forward = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=IDLE_SPEED_MPS))
+
+    assert step_reward(previous, idle) < 0.0
+    assert step_reward(previous, idle) < step_reward(previous, slow_forward)
+
+
+def test_step_reward_idle_penalty_only_applies_below_the_speed_threshold() -> None:
+    previous = RobotSensors(dt_s=1 / 60)
+    just_below_threshold = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=IDLE_SPEED_MPS - 0.01))
+    at_threshold = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=IDLE_SPEED_MPS))
+
+    assert step_reward(previous, just_below_threshold) < step_reward(previous, at_threshold)
+
+
+def test_step_reward_applies_a_one_time_penalty_for_the_terminal_transition() -> None:
+    previous = RobotSensors(contact=ContactSensors(damage=0.85))
+    survives = RobotSensors(contact=ContactSensors(damage=0.88))  # still below NEAR_ELIMINATION_DAMAGE
+    eliminated = RobotSensors(contact=ContactSensors(damage=0.95))  # crosses NEAR_ELIMINATION_DAMAGE
+
+    # Both take on similar new damage this tick; only `eliminated` is terminal.
+    assert step_reward(previous, eliminated) < step_reward(previous, survives)
 
 
 def test_is_terminal_true_at_and_above_near_elimination_threshold() -> None:

@@ -263,11 +263,59 @@ primary approach, roughly in order of expected leverage:
    speed) — so it can be a locally rational strategy to just not drive.
    See `experiments/2026-09-01_scaled-training-budget-seed909/notes.md`
    and `docs/lab_notebook.md`'s 2026-09-01 entry for the full comparison.
-   **Proposed next experiment:** re-run with seed `909` held fixed and a
-   targeted reward change (e.g. a mild penalty for near-zero speed, or
-   reducing `WEIGHT_DAMAGE` relative to `WEIGHT_PROGRESS`) to test whether
-   it prevents the freeze — a clean causal test since the seed that
-   produced the pathological behavior is held constant. Not yet run.
+
+   **Causal test 1 (run):** added `WEIGHT_IDLE = 0.2` (penalizes
+   `abs(speed_mps) < 0.5`), re-ran with seed `909` held fixed. Fixed the
+   freeze (5/10 -> 10/10 race wins, 2.2m -> 31.8m avg distance) but
+   overcorrected: `damage == 1.0` (full elimination) in **all 10**
+   evaluation races, max speed up 2-4x (to 11-19 m/s). See
+   `experiments/2026-09-01_idle-penalty-seed909/notes.md`. Hypothesis: the
+   simulator stops calling an eliminated car's controller, so dying early
+   *ends* the idle penalty's per-tick accrual for the rest of the round —
+   for a long enough round, "sprint and crash early" can look cheaper than
+   "survive idly."
+
+   **Causal test 2 (run):** added `WEIGHT_TERMINAL_PENALTY = 10.0` (a
+   one-time penalty on the tick that crosses `NEAR_ELIMINATION_DAMAGE`, on
+   top of the existing delta-based `WEIGHT_DAMAGE`), re-ran with seed `909`
+   again held fixed. **Zero measurable effect** — `eval_results.json` and
+   `metrics.csv` came back byte-identical to causal test 1's. A diagnostic
+   run (`sensor_sample_callback` logging max damage during training)
+   confirmed why: damage never exceeded 0.33 in any 60s *training* round,
+   so `is_terminal()` was never true during training — the penalty had
+   zero opportunities to apply. The elimination we see happens in the
+   120s *evaluation* round, in territory the policy has never once
+   experienced in training. See
+   `experiments/2026-09-01_terminal-penalty-seed909/notes.md`.
+
+   **Causal test 3 (run, hypothesis rejected):** re-ran with seed `909`
+   held fixed, same reward (idle + terminal penalties), training round
+   60s → 120s (matching eval length), so the terminal penalty would get a
+   chance to apply. Elimination rate was **unchanged** (10/10, same as
+   before) and average max speed got **worse**, jumping to 40.5 m/s (up
+   from 15.9 m/s at 60s training, and ~6x the seed-110 reference's
+   ~6.9 m/s) — very low off-track/wall-contact/low-progress times suggest
+   it now crashes within the first couple of seconds, likely flooring the
+   throttle in a straight line into the nearest wall. Verified this isn't
+   a simulator artifact (checked `reset_robot_vehicle` zeroes velocity
+   correctly on marshal reset). See
+   `experiments/2026-09-01_longer-training-round-seed909/notes.md`.
+
+   **Current read:** "extend training round length" was the wrong lever,
+   or insufficient on its own — it made the safety problem worse, not
+   better. Leading (unverified) hypothesis: a train/eval behavior mismatch
+   — self-play training samples actions *stochastically* (with exploration
+   noise) and its own in-race distance looked reasonable (853-913m per
+   120s race, vs. ~0m in every shorter run), but the *deterministic*
+   evaluation policy (no noise, just the tanh-squashed mean action) may
+   have drifted toward an extreme, rarely-actually-sampled action that
+   produces much more dangerous behavior than anything actually
+   experienced in training. Not yet investigated. Paused this causal-test
+   chain here (four experiments deep) to get direction on which of several
+   plausible next steps to prioritize — see `docs/lab_notebook.md`'s
+   2026-09-01 entry for the options. **Best checkpoint from today remains
+   the original `2026-09-01_scaled-training-budget` (seed 110): 0/10
+   eliminations, ~6.9 m/s max speed, 10/10 wins vs. `crash_fast`.**
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the
@@ -277,10 +325,10 @@ primary approach, roughly in order of expected leverage:
    with damage/marshal rate roughly flat — but only for that one training
    seed. The repeated-seed check (item 0 above) shows training budget
    alone does not reliably produce a competent driving policy: it can
-   also produce the frozen/"do nothing" failure mode. Read as evidence
-   that **training budget and reward risk-asymmetry are both live
-   issues**, not that budget was the sole bottleneck as first thought
-   after the 2026-09-01 reward-reweight null result.
+   also produce the frozen/"do nothing" failure mode, or (once that's
+   patched) a sprint-to-death mode never trained against. Read as evidence
+   that **training budget and reward risk-asymmetry are the same problem
+   from two angles**, not two independent, separately-fixable issues.
 2. **Reward shaping** — tune `w_progress`/`w_center`/`w_wall` weights;
    check whether the proxy reward and real scored distance move together
    across training (the divergence check from §2.3). A first attempt
