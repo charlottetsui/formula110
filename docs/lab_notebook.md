@@ -246,3 +246,123 @@ from the public API at all.
   starting positions; evaluate on seeds never used in training.
 - Start on the refinement plan in `docs/rl_design.md` §6, roughly in the
   order listed there (reward-shaping/divergence check first).
+
+---
+
+## 2026-09-01
+
+**Participants and contributions:** Charlotte Tsui — requested a triage of
+why the trained controller wasn't driving well, then directed two follow-up
+experiments and asked how to watch the controller drive. Claude Code (AI
+agent) — ran the triage (read-only), then implemented and ran both
+experiments and a local-dev viewer controller.
+
+**Question or objective:** Triage why the 2026-08-31 checkpoint doesn't
+drive well on the track (requested read-only first, no changes), then run
+two follow-up experiments: (1) a stronger baseline than `crash_fast`, since
+"beats crash_fast" was suspected to be a weak signal, and (2) a
+single-variable reward reweight targeting the root cause the triage found.
+Also: how to watch the trained controller drive, for the presentation.
+
+**What we investigated or changed:**
+
+- **Triage (read-only, no code changes):** pulled per-race stats from the
+  2026-08-31 `eval_results.json` and read `src/racing/race/runtime.py`.
+  Found the trained controller spent 7.5-27% of each 20s race off-track,
+  needed marshal recovery 2-3 times per race, and had substantial wall
+  contact and low-progress time. Traced two root causes in the code:
+  `WEIGHT_CENTER_OFFSET` (0.05) is 20x smaller than `WEIGHT_PROGRESS`
+  (1.0) in `src/training/reward.py`, and there's a real sensing gap — the
+  drivable-surface threshold is `TRACK_WIDTH/2` (3.3 m) but the
+  marshal-reset threshold is 3.3 + `TRACK_EDGE_BUFFER` (4.7 m), so there's
+  a ~1.4 m runoff band where the car is off-track with no wall nearby to
+  trigger `wall_lidar`/`contact.wall`.
+- **Experiment 2 (baseline change, no retraining):** added
+  `racing.student.api.default_student_controller` as a second evaluation
+  baseline. Refactored the shared evaluation logic out of
+  `scripts/train_sac.py` into `src/training/evaluation.py`
+  (`evaluate_against_baselines`, `BASELINE_CONTROLLERS`) so both
+  `train_sac.py` and a new `scripts/eval_sac.py` (evaluates an existing
+  checkpoint with no training) use the same code. Re-evaluated the
+  2026-08-31 checkpoint against both baselines with `eval_sac.py`.
+- **Experiment 1 (reward reweight, retrained):** raised
+  `WEIGHT_CENTER_OFFSET` 0.05 -> 0.3 in `src/training/reward.py` (the only
+  changed variable), re-ran `scripts/train_sac.py` with identical
+  hyperparameters/seed to the 2026-08-31 baseline.
+- **Viewer:** added `src/controllers/sac_candidate.py` (loads a saved
+  checkpoint, deterministic inference, `FORMULA110_SAC_CHECKPOINT` env var
+  to pick a checkpoint) so the trained controller can be watched via the
+  normal `uv run racing` / `h2h --watch` CLI. Explicitly documented as not
+  submission-packaged yet (imports `training`, which isn't included by
+  `scripts/export_student_controllers.py`).
+
+**Evidence:**
+- Sources or documentation: `src/racing/race/runtime.py`
+  (`_track_projection_is_off_track`, `_track_projection_is_outside_drivable_surface`,
+  `maybe_marshal_race_runtimes`, `RACE_OFF_TRACK_RESET_DISTANCE_M`,
+  `TRACK_EDGE_BUFFER`, `TRACK_WIDTH`) for the triage; re-read
+  `src/racing/student/api.py` to confirm `default_student_controller`'s
+  signature for use as a baseline.
+- AI-agent assistance: Claude Code did the triage read-only per explicit
+  instruction before any code changed; verified every new/changed file
+  with `uv run ruff check`, `uv run pyright` (strict, 0 errors), and
+  `uv run pytest -q` (138 passed) before running experiments; smoke-tested
+  `controllers.sac_candidate` by loading it through
+  `load_student_submission` and calling it once before recommending it be
+  watched live.
+- Commits or code: `src/training/reward.py` (weight change + rationale
+  comment), `src/training/evaluation.py` (new, shared eval logic),
+  `scripts/train_sac.py` (refactored to use it), `scripts/eval_sac.py`
+  (new), `src/controllers/sac_candidate.py` (new), `docs/rl_design.md`
+  (§5, §6 updated).
+- Experiment output:
+  `experiments/2026-09-01_original-vs-default-baseline/` (re-eval of the
+  2026-08-31 checkpoint against both baselines) and
+  `experiments/2026-09-01_center-weight-6x/` (retrained with the new
+  reward weight, evaluated against both baselines).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+- **Experiment 2 result:** against `crash_fast`, the 2026-08-31 checkpoint
+  reproduces its original numbers exactly (62.0/57.3/41.0/80.5/48.6 m,
+  confirming `eval_sac.py`'s deterministic re-evaluation is correct).
+  Against `default_student_controller`, the same checkpoint **loses every
+  race on every seed** (0/10), scoring 16.3-67.2 m versus the baseline's
+  92.5-106.9 m. "Beats crash_fast" was not evidence of a competitive
+  controller — it was evidence of beating a controller that doesn't try.
+- **Experiment 1 result (negative):** the reward reweight produced no
+  measurable improvement. Averaged over 10 races against `crash_fast`:
+  scored distance 28.9m -> 24.8m, off-track time 18.2%->17.1%, wall contact
+  3.12s->2.97s, marshal count 2.30->2.40 — statistically indistinguishable
+  given the sample size, and if anything slightly worse on distance. Same
+  pattern against `default_student_controller`. This was a well-controlled
+  single-variable comparison: both runs used the same base spawn seed
+  (`110`) and the same default SAC network initialization seed (`0`), so
+  everything except the reward's center-offset weight was identical by
+  construction, not just by matching CLI flags.
+- Best current interpretation of the negative result: at only ~2,448
+  gradient updates (most spent in warmup), the policy likely hasn't had
+  enough updates to exploit *any* reshaped incentive yet. Training budget
+  looks like the current bottleneck, not reward shape — see
+  `docs/rl_design.md` §6 item 0.
+
+**Decision and rationale:** Keep the `WEIGHT_CENTER_OFFSET = 0.3` change
+(a reasonable prior, not measurably worse) but do not draw further
+conclusions about reward shaping until training budget is scaled up as its
+own separately-measured variable — reprioritized `docs/rl_design.md` §6 to
+put training budget first. Keep both baselines
+(`crash_fast`+`default_student_controller`) as the standard evaluation
+going forward via `training.evaluation.evaluate_against_baselines`, since
+the single-baseline comparison was shown to be misleading.
+
+**Next steps:**
+- Scale up training budget (more/longer self-play races) as an isolated
+  experiment, same reward and hyperparameters otherwise, to test whether
+  it's really the bottleneck.
+- Re-test reward shaping once training budget is no longer the confound.
+- Watch `controllers.sac_candidate` in a live `h2h --watch` race for a
+  qualitative read (does it look like it's cutting corners, stalling after
+  wall contact, etc.) to sanity-check the quantitative off-track numbers.
+- Widen the training seed distribution (still single-seed as of this
+  entry) — unchanged from the 2026-08-31 next-steps item.

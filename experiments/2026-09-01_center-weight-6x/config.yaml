@@ -1,0 +1,19 @@
+races: 6
+round_seconds: 15.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 50000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 20.0
+experiment_dir: experiments/2026-09-01_center-weight-6x
+git_commit: 2c94b422e7159b471d603473f21db97464da5f7c
+training_seconds: 7.49
+transitions_collected: 10788
+gradient_updates: 2448
+observation_dim: 17
+action_dim: 2

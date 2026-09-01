@@ -15,7 +15,16 @@ import math
 from racing.student.api import LidarSensors, RobotSensors
 
 WEIGHT_PROGRESS = 1.0
-WEIGHT_CENTER_OFFSET = 0.05
+# Raised 0.05 -> 0.3 (2026-09-01, single-variable experiment) after the
+# 2026-08-31 minimum experiment's trained controller spent 7.5-27% of each
+# evaluation race off-track: at 0.05, a corner cut that stays roughly
+# aligned with the track heading earns more cumulative `forward_progress`
+# reward than it loses to `center_offset_m` penalty, so the policy had
+# little incentive to stay on the drivable surface (TRACK_WIDTH/2, ~3.3m)
+# rather than the wider marshal-reset radius (~4.7m). See
+# docs/lab_notebook.md's 2026-09-01 entry for the before/after comparison
+# this change produced.
+WEIGHT_CENTER_OFFSET = 0.3
 WEIGHT_WALL_PROXIMITY = 0.5
 WEIGHT_CONTACT = 0.2
 WEIGHT_DAMAGE = 5.0

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Run a self-play SAC training run and evaluate it against a baseline controller.
+"""Run a self-play SAC training run and evaluate it against baseline controllers.
 
 Implements the minimum experiment from docs/rl_design.md section 5: train
 via self-play (`run_headless_head_to_head` with both sides pointing at the
 same in-training policy, per section 3), then evaluate the frozen policy
-against `controllers.crash_fast` across a fixed multi-seed evaluation set.
-All evidence is written under `experiments/<slug>/` per
-`experiments/README.md`.
+against every baseline in `training.evaluation.BASELINE_CONTROLLERS`
+across a fixed multi-seed evaluation set. All evidence is written under
+`experiments/<slug>/` per `experiments/README.md`.
 """
 
 from __future__ import annotations
@@ -21,8 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from controllers.crash_fast import control as crash_fast_control
-from racing.race.head_to_head import HeadToHeadResult, HeadToHeadRole, run_headless_head_to_head
+from racing.race.head_to_head import run_headless_head_to_head
 from training.controller import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_UPDATE_EVERY_N_STEPS,
@@ -30,6 +29,7 @@ from training.controller import (
     TrainableController,
     TrainingState,
 )
+from training.evaluation import evaluate_against_baselines, role_distance_m
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
@@ -89,13 +89,6 @@ def parse_args() -> TrainSacArguments:
     )
 
 
-def role_distance_m(result: HeadToHeadResult, role: HeadToHeadRole) -> float:
-    """Sum one side's scored distance across every race in a `HeadToHeadResult`."""
-    return sum(
-        (race.challenger if role == "challenger" else race.incumbent).team_sum_distance_m for race in result.races
-    )
-
-
 def git_commit_hash() -> str:
     try:
         result = subprocess.run(
@@ -146,35 +139,6 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
     return agent, state, training_seconds
 
 
-def evaluate(agent: SACAgent, args: TrainSacArguments) -> list[dict[str, object]]:
-    eval_state = TrainingState(
-        agent=agent,
-        buffer=ReplayBuffer(capacity=1, observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM),
-        rng=np.random.default_rng(0),
-    )
-    per_seed_results: list[dict[str, object]] = []
-    for seed in args.eval_seeds:
-        trained_controller = TrainableController(state=eval_state, training=False)
-        result = run_headless_head_to_head(
-            challenger_controller=trained_controller,
-            incumbent_controller=crash_fast_control,
-            challenger_name="sac-trained",
-            incumbent_name="crash_fast",
-            race_count=args.eval_races,
-            round_seconds=args.eval_round_seconds,
-            random_seed=seed,
-        )
-        record = result.to_dict()
-        record["eval_seed"] = seed
-        per_seed_results.append(record)
-        print(
-            f"[eval] seed={seed}: sac-trained {role_distance_m(result, 'challenger'):.1f}m vs "
-            f"crash_fast {role_distance_m(result, 'incumbent'):.1f}m "
-            f"(sac wins {result.challenger_wins}/{result.race_count})"
-        )
-    return per_seed_results
-
-
 def write_config(
     path: Path, args: TrainSacArguments, *, training_seconds: float, transitions: int, updates: int
 ) -> None:
@@ -211,7 +175,9 @@ def main() -> None:
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     agent, state, training_seconds = train(args)
-    eval_results = evaluate(agent, args)
+    eval_results = evaluate_against_baselines(
+        agent, eval_seeds=args.eval_seeds, eval_races=args.eval_races, eval_round_seconds=args.eval_round_seconds
+    )
 
     agent.save(checkpoints_dir / "policy_final.pt", include_training_state=True)
     write_config(

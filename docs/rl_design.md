@@ -209,9 +209,17 @@ Smallest implementation that produces evidence the approach is viable:
   critics, a modest number of self-play races (enough ticks to fill the
   buffer once and take a few hundred gradient steps) — enough to check the
   plumbing works end-to-end, not to produce a competitive controller yet.
-- Baseline for comparison: `src/controllers/crash_fast.py` (always full
-  throttle, no steering) and a simple hand-written wall-avoidance
-  controller if one exists by then.
+- Baseline for comparison: **two** baselines, evaluated automatically by
+  `training.evaluation.evaluate_against_baselines` (used by both
+  `scripts/train_sac.py` and `scripts/eval_sac.py`) —
+  `src/controllers/crash_fast.py` (always full throttle, no steering) and
+  `racing.student.api.default_student_controller` (a real center-line-
+  following heuristic). `crash_fast` alone is a near-vacuous floor (it
+  scores `0.0 m` on every seed, since it crashes almost immediately and
+  scored distance excludes contact time) — see `docs/lab_notebook.md`'s
+  2026-09-01 entry for why a second, real baseline was added after the
+  first minimum experiment made `crash_fast`-only comparisons look better
+  than they were.
 
 **Evaluation:**
 
@@ -220,10 +228,11 @@ Smallest implementation that produces evidence the approach is viable:
   spawn contract).
 - Metrics, read from `HeadToHeadTeamRaceStats` / `HeadToHeadResult`, not the
   training-time proxy reward: scored distance, lap count, elimination rate,
-  time-to-first-wall-contact, max speed, variance across the 5 seeds.
-- Compare: does the SAC-trained controller beat `crash_fast` on scored
-  distance and survive longer before elimination, and is that consistent
-  across all 5 seeds (not one lucky start)?
+  off-track seconds, marshal count/penalty, max speed, variance across the
+  5 seeds.
+- Compare against **both** baselines: beating `crash_fast` only shows the
+  controller survives longer than a controller that doesn't try; beating
+  `default_student_controller` is the bar that actually means something.
 - Record wall-clock training time — SAC's sample efficiency claim (§1) is
   only worth something if training time is competitive with the alternative
   approach's dev/train time.
@@ -236,9 +245,24 @@ Results, logs, and configs for this and later runs live under
 Candidates for the next round of experiments once SAC is selected as the
 primary approach, roughly in order of expected leverage:
 
+0. **Training budget** (now the top priority — see item 1 below) — scale
+   up races/round length/gradient updates well beyond the 2026-08-31
+   minimum experiment's ~2,400 updates before drawing further conclusions
+   about reward shape, network size, or anything else. Change this as its
+   own isolated variable (same reward, same everything else) so its effect
+   is separable from other changes.
 1. **Reward shaping** — tune `w_progress`/`w_center`/`w_wall` weights;
    check whether the proxy reward and real scored distance move together
-   across training (the divergence check from §2.3).
+   across training (the divergence check from §2.3). A first attempt
+   (raising `w_center` 0.05 → 0.3, everything else held fixed, same
+   training seed/hyperparameters as the 2026-08-31 baseline) produced no
+   measurable change in off-track time, marshal count, or scored distance
+   against either baseline — see `docs/lab_notebook.md`'s 2026-09-01 entry.
+   Read as evidence that **training budget (§below) is the current
+   bottleneck, not reward shape** — at ~2,400 gradient updates the policy
+   likely hasn't had enough updates to exploit a reshaped incentive either
+   way. Re-test reward shaping only after scaling up training budget as its
+   own, separately-measured variable.
 2. **Robustness across seeds** — widen the training seed distribution
    (rather than a fixed handful) so the policy doesn't overfit to specific
    spawn points; evaluate on held-out seeds never used in training.
