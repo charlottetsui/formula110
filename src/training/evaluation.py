@@ -48,11 +48,22 @@ def evaluate_against_baselines(
     eval_races: int,
     eval_round_seconds: float,
     baselines: dict[str, RobotController] | None = None,
+    deterministic: bool = True,
 ) -> list[dict[str, object]]:
-    """Run the frozen policy in `agent` against every baseline, across every seed."""
+    """Run the frozen policy in `agent` against every baseline, across every seed.
+
+    ``deterministic=True`` (the default) picks the policy's mean action
+    every tick, matching how a packaged controller would run it.
+    ``deterministic=False`` samples actions the same way training does
+    (with exploration noise), while still never writing to a replay buffer
+    or updating weights -- used to check whether dangerous deterministic
+    behavior is an eval-time artifact rather than what the policy actually
+    learned.
+    """
     resolved_baselines = BASELINE_CONTROLLERS if baselines is None else baselines
-    # `rng`, `warmup_steps`, etc. are unused here: every controller built from this
-    # state is `training=False`, which always takes the deterministic-policy path.
+    # `rng` is only consulted by the stochastic (deterministic=False) path here
+    # (via SACAgent.act's own torch sampling, not this rng directly); `warmup_steps`
+    # is unused since every controller built from this state has `training=False`.
     eval_state = TrainingState(
         agent=agent,
         buffer=ReplayBuffer(capacity=1, observation_dim=OBSERVATION_DIM, action_dim=2),
@@ -61,7 +72,7 @@ def evaluate_against_baselines(
     records: list[dict[str, object]] = []
     for baseline_name, baseline_controller in resolved_baselines.items():
         for seed in eval_seeds:
-            trained_controller = TrainableController(state=eval_state, training=False)
+            trained_controller = TrainableController(state=eval_state, training=False, deterministic=deterministic)
             result = run_headless_head_to_head(
                 challenger_controller=trained_controller,
                 incumbent_controller=baseline_controller,

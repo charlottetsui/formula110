@@ -89,6 +89,41 @@ def test_copy_for_car_shares_state_but_not_episode_history() -> None:
     assert len(state.buffer) == pushed_before_copy + 1  # but shares the same learning state as `original`
 
 
+def test_deterministic_action_is_repeatable_for_the_same_sensors() -> None:
+    state = _training_state()
+    controller = TrainableController(state=state, training=False, deterministic=True)
+    same_sensors = _sensors(tick=5)
+
+    first = controller(same_sensors)
+    second = controller(same_sensors)
+
+    assert (first.throttle, first.steer) == (second.throttle, second.steer)
+
+
+def test_deterministic_false_overrides_training_flag_and_samples_stochastically() -> None:
+    state = _training_state()
+    controller = TrainableController(state=state, training=False, deterministic=False)
+    same_sensors = _sensors(tick=5)
+
+    first = controller(same_sensors)
+    second = controller(same_sensors)
+
+    assert (first.throttle, first.steer) != (second.throttle, second.steer)
+    assert len(state.buffer) == 0  # still never writes to the buffer -- only action selection changed
+
+
+def test_copy_for_car_preserves_the_deterministic_override() -> None:
+    state = _training_state()
+    original = TrainableController(state=state, training=False, deterministic=False)
+
+    copy = original.copy_for_car()
+    same_sensors = _sensors(tick=5)
+    first = copy(same_sensors)
+    second = copy(same_sensors)
+
+    assert (first.throttle, first.steer) != (second.throttle, second.steer)
+
+
 def test_warmup_actions_are_random_until_buffer_reaches_warmup_steps() -> None:
     state = _training_state(warmup_steps=1_000)
     controller = TrainableController(state=state, training=True)

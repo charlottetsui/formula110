@@ -789,3 +789,97 @@ flagged this explicitly so it isn't watched by accident.
    reward penalty) as a safety backstop independent of what the reward
    teaches -- reward shaping alone has now twice produced an unsafe
    policy for this seed.
+
+---
+
+## 2026-09-01 (continued, 6)
+
+**Participants and contributions:** Charlotte Tsui — directed the
+investigation of the stochastic-vs-deterministic hypothesis specifically.
+Claude Code (AI agent) — implemented the diagnostic capability, ran it,
+got a clean rejection, and caught its own earlier misreading of a number
+in the process.
+
+**Question or objective:** Test directly whether the previous entry's
+dangerous checkpoint (40.5 m/s, 100% elimination) behaves that way only
+under deterministic (mean-action) evaluation, or whether it's equally
+dangerous when actions are sampled stochastically, the way training
+itself chooses them.
+
+**What we investigated or changed:**
+
+- Added a `deterministic: bool | None = None` parameter to
+  `TrainableController.__init__` (`src/training/controller.py`),
+  decoupling action-selection determinism from the `training` flag
+  (previously hard-coded as `deterministic = not training`).
+  `training.evaluation.evaluate_against_baselines` got a matching
+  `deterministic: bool = True` parameter so existing callers are
+  unaffected by default.
+- Added 3 tests (`tests/test_training_controller.py`): deterministic
+  action selection is repeatable for identical sensors, an explicit
+  `deterministic=False` override samples differently each call even with
+  `training=False`, and `copy_for_car` preserves the override.
+- Wrote `scripts/compare_stochastic_eval.py`: loads a checkpoint, runs
+  `evaluate_against_baselines` twice (deterministic and stochastic) across
+  the same seeds/baseline, and reports a side-by-side summary (avg damage,
+  avg max speed, avg scored distance, elimination rate).
+- Ran it against the causal-test-3 checkpoint
+  (`2026-09-01_longer-training-round-seed909`, the 40.5 m/s / 100%-
+  elimination one) — no retraining, just re-evaluating the existing
+  weights two ways.
+
+**Evidence:**
+- Sources or documentation: none beyond the checkpoint and code already on
+  disk.
+- AI-agent assistance: Claude Code verified the new code with
+  `ruff`/`pyright` (strict, 0 errors)/`pytest -q` (144 passed) before
+  running the diagnostic. After getting the result, it re-checked its own
+  prior reasoning (the "self-play's own distance looked reasonable" claim
+  from the previous entry) against the new numbers instead of just
+  reporting the rejection and moving on — found that claim was based on
+  not dividing a printed total by the race count, and corrected it
+  explicitly rather than leaving the earlier entry's reasoning
+  uncorrected.
+- Commits or code: `src/training/controller.py`, `src/training/evaluation.py`,
+  `tests/test_training_controller.py` (3 new tests),
+  `scripts/compare_stochastic_eval.py` (new), `docs/rl_design.md` §6.
+- Experiment output:
+  `experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/`
+  (`eval_results_deterministic.json`, `eval_results_stochastic.json`,
+  `summary.json`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** The hypothesis is rejected, cleanly. Deterministic
+vs. stochastic evaluation of the identical checkpoint: avg max speed 40.46
+vs. 40.02 m/s, avg damage 1.000 vs. 1.000, elimination rate 100% vs. 100%,
+avg scored distance 91.3 vs. 94.5m — essentially identical across the
+board. Sampling actions with training-style exploration noise produces the
+same extreme-speed, always-eliminated behavior as the deterministic mean
+action. This also resolved a loose end from the previous entry: self-play
+training's printed total ("913.4m over 10 races") was never evidence of
+safe behavior — 913.4 / 10 = 91.3m/race, which matches the eval averages
+almost exactly. The training process itself has been producing this same
+crash-after-a-fast-burst pattern all along; it just wasn't checked
+per-race at the time.
+
+**Decision and rationale:** Close the eval-mode-artifact line of
+investigation — the danger is substantively learned, not a deployment-time
+quirk, so tuning inference-time noise/temperature would not fix it.
+Updated `docs/rl_design.md` §6 with a new leading (untested) hypothesis:
+`forward_progress_m` in the reward has no upper bound on speed, so nothing
+structurally stops the policy from valuing ever-higher speed, and the
+one-time `WEIGHT_TERMINAL_PENALTY = 10.0` may just be smaller than the
+cumulative reward from a fast enough burst before crashing.
+
+**Next steps:** Options unchanged from the previous entry, plus one new,
+more specific candidate:
+1. **(new, current leading hypothesis)** Test capping/saturating the speed
+   term in `forward_progress_m` so reward stops scaling linearly with
+   speed above some threshold, removing the structural incentive to push
+   speed indefinitely.
+2. Try the current reward (idle + terminal penalties) on seed 110 (the
+   "good" seed) to see if this failure is seed-909-specific or general.
+3. Run a small seed sweep (3-5 seeds) at the current reward to see the
+   real outcome distribution.
+4. Add a hard action/speed cap at the controller level as a safety
+   backstop independent of reward shaping.

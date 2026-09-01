@@ -303,15 +303,34 @@ primary approach, roughly in order of expected leverage:
 
    **Current read:** "extend training round length" was the wrong lever,
    or insufficient on its own — it made the safety problem worse, not
-   better. Leading (unverified) hypothesis: a train/eval behavior mismatch
-   — self-play training samples actions *stochastically* (with exploration
-   noise) and its own in-race distance looked reasonable (853-913m per
-   120s race, vs. ~0m in every shorter run), but the *deterministic*
-   evaluation policy (no noise, just the tanh-squashed mean action) may
-   have drifted toward an extreme, rarely-actually-sampled action that
-   produces much more dangerous behavior than anything actually
-   experienced in training. Not yet investigated. Paused this causal-test
-   chain here (four experiments deep) to get direction on which of several
+   better.
+
+   **Causal test 4 (run, hypothesis rejected):** tested the train/eval
+   behavior-mismatch hypothesis directly — added a `deterministic`
+   parameter to `TrainableController`/`evaluate_against_baselines`
+   (previously coupled to `training`) so the same checkpoint could be
+   evaluated with sampled (stochastic, like training) actions instead of
+   only the mean action. Loaded the causal-test-3 checkpoint (40.5 m/s,
+   100% elimination) and compared: deterministic avg max speed 40.46 m/s
+   vs. stochastic 40.02 m/s; damage 1.000 vs. 1.000; elimination rate 100%
+   vs. 100%. **Essentially identical — hypothesis rejected.** The danger
+   is not an eval-time artifact; the policy learned this behavior
+   substantively. (This also corrected a misreading: self-play's printed
+   training total, 913.4m over 10 races = 91.3m/race, matches the eval
+   averages almost exactly — it was never evidence of safe training
+   behavior, it just wasn't divided by race count at the time.) See
+   `experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/notes.md`.
+
+   **New leading hypothesis (not yet tested):** `forward_progress_m` in
+   `src/training/reward.py` (`speed_mps * cos(heading_error) * dt_s`) has
+   no upper bound — nothing caps the reward benefit of going faster, so a
+   policy that discovers "more speed = more reward, monotonically" has no
+   structural reason to stop pushing speed higher, and a one-time
+   `WEIGHT_TERMINAL_PENALTY = 10.0` may simply be smaller than the
+   cumulative reward from a sustained high-speed burst before crashing.
+
+   Paused this causal-test chain here (five experiments deep, one
+   hypothesis rejected outright) to get direction on which of several
    plausible next steps to prioritize — see `docs/lab_notebook.md`'s
    2026-09-01 entry for the options. **Best checkpoint from today remains
    the original `2026-09-01_scaled-training-budget` (seed 110): 0/10

@@ -61,15 +61,27 @@ class TrainingState:
 class TrainableController:
     """`RobotController` that is also the SAC agent's data-collection/training hook.
 
-    Pass ``training=False`` to get a frozen, deterministic evaluation
-    controller that shares the trained policy but never writes to the
-    replay buffer or updates weights -- used to evaluate a checkpoint
-    against a baseline via `run_headless_head_to_head`.
+    Pass ``training=False`` to get a frozen evaluation controller that
+    shares the trained policy but never writes to the replay buffer or
+    updates weights -- used to evaluate a checkpoint against a baseline via
+    `run_headless_head_to_head`. By default this also selects the
+    deterministic (mean, no exploration noise) action, matching how a
+    packaged controller like `controllers.sac_candidate` would run it.
+
+    Pass ``deterministic`` explicitly to decouple action selection from
+    ``training`` -- e.g. ``training=False, deterministic=False`` evaluates
+    a frozen checkpoint using *stochastic* (sampled) actions, the same way
+    actions were chosen during training, without writing to the buffer or
+    updating weights. Used to check whether a policy's dangerous
+    deterministic behavior is an eval-time artifact (see
+    docs/lab_notebook.md's 2026-09-01 entries on the seed-909 causal-test
+    chain) or genuinely what the policy learned.
     """
 
-    def __init__(self, *, state: TrainingState, training: bool) -> None:
+    def __init__(self, *, state: TrainingState, training: bool, deterministic: bool | None = None) -> None:
         self._state = state
         self.training = training
+        self._deterministic = (not training) if deterministic is None else deterministic
         self._previous_sensors: RobotSensors | None = None
         self._previous_observation: np.ndarray | None = None
         self._previous_action: np.ndarray | None = None
@@ -98,8 +110,8 @@ class TrainableController:
     def _select_action(self, observation: np.ndarray) -> np.ndarray:
         if self.training and len(self._state.buffer) < self._state.warmup_steps:
             return self._state.rng.uniform(-1.0, 1.0, size=self._state.agent.action_dim).astype(np.float32)
-        return self._state.agent.act(observation, deterministic=not self.training)
+        return self._state.agent.act(observation, deterministic=self._deterministic)
 
     def copy_for_car(self) -> TrainableController:
         """Return a fresh controller for one car/race, sharing this instance's learning state."""
-        return TrainableController(state=self._state, training=self.training)
+        return TrainableController(state=self._state, training=self.training, deterministic=self._deterministic)
