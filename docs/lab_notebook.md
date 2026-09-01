@@ -471,3 +471,55 @@ repeat-seed test the explicit next step before further scaling.
 - Once pace is understood, continue scaling training budget further, and
   re-test the reward-weight change now that training budget is less of a
   confound.
+
+---
+
+## 2026-09-01 (continued, 2)
+
+**Participants and contributions:** Charlotte Tsui — asked how to always
+run the controller with the latest training updates, and flagged (by
+asking) that `controllers.sac_candidate`'s checkpoint path might need to be
+re-pointed by hand after every run. Claude Code (AI agent) — found and
+fixed the actual gap.
+
+**Question or objective:** Is `uv run racing --seed 110 --student-module
+controllers.sac_candidate` always correct for watching the latest trained
+controller?
+
+**What we investigated or changed:** `src/controllers/sac_candidate.py`'s
+`DEFAULT_CHECKPOINT` was a hardcoded path to one specific experiment
+directory, manually updated after each training run (as done in the prior
+two entries) — its own docstring claimed it "defaults to the most recent
+experiment's checkpoint," which wasn't actually true. Replaced the hardcoded
+constant with `_latest_checkpoint()`, which globs
+`experiments/*/checkpoints/policy_final.pt` and picks whichever file has
+the newest modification time, computed fresh every time the controller
+loads (not cached at import time).
+
+**Evidence:**
+- Sources or documentation: none beyond the file itself.
+- AI-agent assistance: Claude Code verified the fix by calling
+  `_latest_checkpoint()` directly (confirmed it resolves to
+  `experiments/2026-09-01_scaled-training-budget/checkpoints/policy_final.pt`,
+  the newest one on disk) and by loading the controller through
+  `load_student_submission("controllers.sac_candidate")` and calling it
+  once, before reporting it fixed. Ran `ruff`, `pyright` (strict, 0
+  errors), and `pytest -q` (138 passed).
+- Commits or code: `src/controllers/sac_candidate.py`.
+- Experiment output: n/a (no training run this entry).
+- Leaderboard result: n/a.
+
+**What we observed:** The command the user ran was correct as a way to run
+the controller, but "always" was not true before this fix — it depended on
+a manual edit after every training run that was easy to forget. `uv run
+racing --seed 110 --student-module controllers.sac_candidate` is now
+actually correct "always" without further action, as long as new
+checkpoints get saved under `experiments/<run>/checkpoints/policy_final.pt`
+(which `scripts/train_sac.py` already does).
+
+**Decision and rationale:** Auto-discovery by file mtime is simpler and
+more reliable than continuing to hand-maintain a pointer, and it was
+already what the docstring claimed to do.
+
+**Next steps:** None new — this was a correctness fix, not a modeling
+change. Resume with the repeated-seed training-budget run next.
