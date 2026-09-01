@@ -1142,3 +1142,80 @@ progress -- the problem has shifted from "no speed, no wall-avoidance" to
 5. Hard action/speed cap at the controller level, still open, though less
    urgent now that the reward changes have shown they *can* work well
    starting from the right conditions.
+
+---
+
+## 2026-09-01 (continued, 10)
+
+**Participants and contributions:** Charlotte Tsui — directed more
+training on the same seed/reward combination, focused on lap completion.
+Claude Code (AI agent) — ran it (backgrounded again, ~3 minutes), verified
+the result thoroughly (per-race detail, held-out-seed check) before
+reporting it as a genuine success rather than another misleading total.
+
+**Question or objective:** Does more training on the same (seed 110,
+current full reward) combination improve the ~40% elimination rate found
+in the previous entry, now that the reward is confirmed to point somewhere
+productive?
+
+**What we investigated or changed:** Re-ran
+`scripts/train_sac.py --races 20 --round-seconds 120 --buffer-capacity
+400000 --eval-round-seconds 120 --seed 110` -- identical to
+`2026-09-01_full-reward-seed110` except `--races 10 → 20` (buffer capacity
+raised to match). No reward or hyperparameter changes. Took 184.4s
+training (exceeded the 120s foreground timeout, moved to background and
+picked up via the completion notification).
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output.
+- AI-agent assistance: Claude Code did not report the headline numbers
+  (consistent ~1550-1650m scored distance, 2/2 wins everywhere) as
+  success without checking per-race damage, lap count, and max speed
+  first -- the same discipline applied to the previous entry's big
+  numbers. Additionally checked the training/eval seed overlap directly
+  (training used seed 110, also an eval seed) by isolating the 4 genuinely
+  held-out seeds and confirming they show the identical pattern, rather
+  than letting that known caveat go unaddressed for a result this
+  significant.
+- Commits or code: `docs/rl_design.md` §6 (causal test 8).
+- Experiment output: `experiments/2026-09-01_more-training-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** The reliability problem is resolved, not just
+improved. **Zero eliminations across all 20 evaluation races** (5 seeds x
+2 races x 2 baselines). Every single race completed exactly 4 laps.
+Max speed settled to a controlled, consistent 17.8-21.2 m/s (down from
+25-47 m/s at races=10). Best lap times 21.2-27.9s (~6.5-8.6 m/s average
+lap pace -- genuine cornering competence, not just a fast straightaway).
+**20/20 race wins against both baselines.** The 4 held-out seeds (42, 7,
+2024, 8675309 -- never used for training spawns) show the identical
+pattern, ruling out the training/eval seed overlap as an explanation.
+
+Only the amount of training changed (2x races, ~29k -> ~60k gradient
+updates, same already-productive reward) -- this alone took elimination
+rate from 60% to 0% and converged what had been a highly variable policy
+(0-9 laps depending on the race) into a highly consistent one (4 laps,
+every time).
+
+**Decision and rationale:** This is the new best checkpoint by every
+metric that matters -- reliability, cross-seed consistency, and
+competitiveness -- and is now the reference point for further refinement.
+`controllers.sac_candidate` auto-selects it as the newest checkpoint.
+Given how strong and clean this result is, treating today's causal-test
+chain (which started from the seed-909 freeze/crash investigation) as
+substantially resolved: the current reward, given enough training, reaches
+a reliable, competitive controller from seed 110.
+
+**Next steps:**
+1. Investigate whether 4 laps is a round-length artifact (would a longer
+   round show 5+ laps, or is progress capping out for another reason).
+2. Try further scaling training to see if performance keeps improving or
+   has plateaued.
+3. Test on more seeds beyond the fixed 5 to build confidence before
+   treating this as leaderboard-ready.
+4. Consider packaging this checkpoint as a self-contained, submission-
+   ready controller (no `training/` dependency) per the refinement plan.
+5. Watch it live (`controllers.sac_candidate`) for a qualitative check --
+   all evidence so far is headless stats.

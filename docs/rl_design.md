@@ -389,13 +389,34 @@ primary approach, roughly in order of expected leverage:
    *inconsistent — crashes in ~40% of races*, which is a different (and
    more tractable) problem than where this causal-test chain started.
 
-   Paused here (seven experiments deep) — see `docs/lab_notebook.md`'s
-   2026-09-01 entry for next-step options. **Best/most interesting
-   checkpoints from today, for different criteria:**
-   `2026-09-01_scaled-training-budget` (seed 110, original reward): 0/10
-   eliminations, ~6.9 m/s, most *reliable*. `2026-09-01_full-reward-
-   seed110` (this test): 6/10 eliminations, ~30 m/s, 8-9 laps and beats
-   the strong baseline when it survives — much faster but less reliable.
+   **Causal test 8 (run) — reliability problem resolved:** same seed
+   `110`, same reward, same 120s round length as causal test 7 — only
+   `--races 10 → 20` (and buffer capacity raised to match). Result:
+   **zero eliminations across all 20 evaluation races** (5 seeds × 2
+   races × 2 baselines), every single race completing exactly 4 laps,
+   max speed settled to a controlled 17.8-21.2 m/s (down from 25-47 m/s),
+   best lap times 21.2-27.9s (~6.5-8.6 m/s average lap pace — genuinely
+   competent cornering, not just a straightaway sprint), and **20/20 race
+   wins against both baselines**. Checked the training/eval seed overlap
+   directly: the 4 genuinely held-out seeds (never used in training)
+   show the identical pattern — this is not an artifact of testing on the
+   training seed. See
+   `experiments/2026-09-01_more-training-seed110/notes.md`.
+
+   **Read:** more training on the same already-productive seed+reward
+   combination (not a different seed, not a different reward) was enough
+   to close the reliability gap — 2x the races (10 → 20, ~29k → ~60k
+   gradient updates) took elimination rate from 60% to 0% and converged
+   max speed to a controlled, consistent pace. This is the strongest
+   result of the day by every metric that matters (reliability,
+   consistency across seeds, and competitiveness against the strong
+   baseline) and is now the reference checkpoint for further work.
+
+   Paused here (eight experiments deep) — see `docs/lab_notebook.md`'s
+   2026-09-01 entry for next-step options. **Current best checkpoint:
+   `2026-09-01_more-training-seed110`** — 0/20 eliminations, ~18-21 m/s
+   max speed, 4 laps and 20/20 race wins in every evaluated race across
+   both training and held-out seeds.
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the
