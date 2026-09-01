@@ -961,3 +961,94 @@ comparable to a single tick or to `WEIGHT_DAMAGE`'s per-hit scale.
    backstop independent of reward shaping -- still open, and increasingly
    worth considering given two reward-side fixes in a row haven't moved
    the elimination rate at all.
+
+---
+
+## 2026-09-01 (continued, 8)
+
+**Participants and contributions:** Charlotte Tsui — directed raising
+`WEIGHT_TERMINAL_PENALTY` and focusing on wall-avoidance specifically.
+Claude Code (AI agent) — implemented both, ran the causal test, found a
+pattern across three consecutive attempts, and recommended a change of
+direction rather than a fourth attempt on the same seed.
+
+**Question or objective:** Raise the terminal penalty (per the previous
+entry's quantitative recommendation) and strengthen the controller's
+ability to detect and react to nearing walls.
+
+**What we investigated or changed:**
+
+- `src/training/reward.py`: `WEIGHT_TERMINAL_PENALTY` 10.0 -> 100.0
+  (needs ~10s of at-cap driving to break even, vs. ~2s before, per last
+  entry's arithmetic). As a direct, bundled wall-avoidance strengthening
+  pass: `WEIGHT_WALL_PROXIMITY` 0.5 -> 1.0 (doubled, now comparable in
+  scale to `WEIGHT_PROGRESS`) and `WALL_WARNING_DISTANCE_M` 3.0 -> 6.0
+  (3.0m gives under a tenth of a second of reaction time at the 38+ m/s
+  speeds every crashing checkpoint has shown; 6.0m gives ~0.6s even at
+  the reward-cap cruising speed).
+- Removed a duplicate `WEIGHT_WALL_PROXIMITY` declaration left over from
+  editing (the constant is now declared once, alongside
+  `WALL_WARNING_DISTANCE_M` since they're used together).
+- Re-ran with seed `909` held fixed, same 120s training round as the
+  previous three entries, for direct comparability.
+
+**Evidence:**
+- Sources or documentation: none beyond the experiments' own output.
+- AI-agent assistance: Claude Code caught and fixed its own mistake before
+  running anything -- the wall-avoidance edit initially left two
+  `WEIGHT_WALL_PROXIMITY` definitions in the file (Python would have
+  silently used the second, but it was confusing and not what was
+  intended structurally), found by re-reading the file after editing
+  rather than assuming the edit was clean. Ran `ruff`/`pyright` (strict,
+  0 errors)/`pytest -q` (146 passed, including the reward tests with the
+  new values) before running the experiment.
+- Commits or code: `src/training/reward.py`, `docs/rl_design.md` §6.
+- Experiment output:
+  `experiments/2026-09-01_terminal100-walldist6-seed909/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** Essentially no change on the metric that matters.
+Avg max speed 38.8 -> 39.0 m/s (unchanged). Elimination rate 10/10 -> 9/10
+-- a marginal improvement, but the one race that avoided full elimination
+isn't a wall-avoidance success story: it took 0.469 damage (a serious
+partial hit) and then spent 107 of 120 seconds (89%) stuck/low-progress,
+looking more like "survived a bad hit and then couldn't function" than
+"detected and steered around a wall in time." Every other race (9/10)
+still reached full elimination at essentially the same extreme speeds
+(29-47 m/s) seen in every reward configuration tested today.
+
+This is the third reward-tuning attempt in a row (speed cap, then this
+combined change) where average max speed stayed pinned in the same 38-40
+m/s range, despite each fix being confirmed *active* during training
+(unlike the very first terminal-penalty test, which never fired at all).
+That consistency across genuinely different reward shapes points at
+something more structural than "the reward needs one more tweak": seed
+909's policy may simply be stuck in a resistant local optimum -- a
+"floor it straight" behavior that's easy for the network to represent and
+may have been reinforced early, before any of today's reward changes
+existed to redirect it.
+
+**Decision and rationale:** Keep both changes (not harmful, directionally
+correct even if insufficient alone). Do not adopt this checkpoint. Given
+three consecutive reward-only attempts on the same seed with no movement
+on top speed, recommending a change of direction rather than a fourth
+attempt: test the current, now substantially revised reward on seed 110
+(the only checkpoint so far with zero eliminations) to see whether it
+helps, hurts, or doesn't matter there -- this is the most informative
+single next experiment, since it's untested and would distinguish
+"seed-909-specific stuck optimum" from "something more fundamentally
+wrong with the reward that seed 110 happened not to expose yet."
+
+**Next steps:**
+1. **(recommended)** Train seed 110 from scratch with the full current
+   reward and compare against its own prior result (0/10 eliminations,
+   ~6.9 m/s, 10/10 wins) -- not yet run, proposed to Charlotte.
+2. Run a small seed sweep (3-5 seeds) at the current reward for a real
+   sense of the outcome distribution.
+3. Add a hard action/speed cap at the controller level as a safety
+   backstop -- increasingly the most reliable lever given reward shaping
+   alone has now made four attempts (idle, terminal-penalty-only, speed
+   cap, terminal+wall-avoidance) without controlling top speed on seed
+   909.

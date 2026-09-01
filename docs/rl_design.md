@@ -341,13 +341,37 @@ primary approach, roughly in order of expected leverage:
    `WEIGHT_TERMINAL_PENALTY` relative to achievable per-episode cumulative
    reward, not the shape of the progress term.
 
-   Paused this causal-test chain here (six experiments deep, two
-   hypotheses rejected outright) to get direction on which of several
-   plausible next steps to prioritize — see `docs/lab_notebook.md`'s
-   2026-09-01 entry for the options, now including a quantitatively-
-   motivated one (raise `WEIGHT_TERMINAL_PENALTY` into the tens, not just
-   comparable to `WEIGHT_DAMAGE`). **Best checkpoint from today remains
-   the original `2026-09-01_scaled-training-budget` (seed 110): 0/10
+   **Causal test 6 (run, no meaningful effect):** raised
+   `WEIGHT_TERMINAL_PENALTY` 10.0 → 100.0 (needs ~10s of at-cap driving to
+   break even, vs. ~2s before) and, as a direct wall-avoidance
+   strengthening pass, `WEIGHT_WALL_PROXIMITY` 0.5 → 1.0 and
+   `WALL_WARNING_DISTANCE_M` 3.0 → 6.0 (3.0m gives almost no reaction time
+   at 15-40+ m/s). Re-ran with seed `909` held fixed, same 120s training
+   round. **Essentially no change**: avg max speed 38.8 → 39.0 m/s
+   (unchanged), elimination rate 10/10 → 9/10 (marginal — the one survivor
+   took 0.469 damage and then spent 89% of the race stuck, not a genuine
+   wall-avoidance success). See
+   `experiments/2026-09-01_terminal100-walldist6-seed909/notes.md`.
+
+   **Pattern across three consecutive reward-tuning attempts on seed
+   909** (speed cap, then this): average max speed has stayed pinned at
+   38-40 m/s regardless of what the reward does, even though each fix was
+   confirmed active during training (unlike the terminal-penalty test that
+   never fired). This suggests seed 909's policy may be stuck in a
+   resistant local optimum — a simple "floor it straight" behavior that's
+   easy to represent and got reinforced early — that isn't responding to
+   reward-shape changes alone at this training budget (~17-21k updates).
+   Continuing to iterate using only seed 909 risks overfitting conclusions
+   to one seed's particular stuck optimum. **Proposed next step: test the
+   current, now substantially revised reward on seed 110** (the only
+   checkpoint so far with zero eliminations) to see whether today's
+   changes help, hurt, or don't matter there — not yet run.
+
+   Paused this causal-test chain here (seven experiments deep, two
+   hypotheses rejected outright, three reward attempts with no effect on
+   top speed) to get direction — see `docs/lab_notebook.md`'s 2026-09-01
+   entry for the options. **Best checkpoint from today remains the
+   original `2026-09-01_scaled-training-budget` (seed 110): 0/10
    eliminations, ~6.9 m/s max speed, 10/10 wins vs. `crash_fast`.**
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,

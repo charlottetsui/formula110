@@ -25,7 +25,6 @@ WEIGHT_PROGRESS = 1.0
 # docs/lab_notebook.md's 2026-09-01 entry for the before/after comparison
 # this change produced.
 WEIGHT_CENTER_OFFSET = 0.3
-WEIGHT_WALL_PROXIMITY = 0.5
 WEIGHT_CONTACT = 0.2
 WEIGHT_DAMAGE = 5.0
 WEIGHT_REVERSE = 0.1
@@ -58,7 +57,21 @@ IDLE_SPEED_MPS = 0.5
 # unambiguously bad regardless of how much idle-penalty it would otherwise
 # have avoided. See docs/lab_notebook.md's 2026-09-01 entry and
 # experiments/2026-09-01_idle-penalty-seed909/notes.md.
-WEIGHT_TERMINAL_PENALTY = 10.0
+#
+# Raised 10.0 -> 100.0 (2026-09-01) after two more experiments showed 10.0
+# was not nearly enough: at the (now-capped) MAX_REWARDED_SPEED_MPS, one
+# tick of progress reward is ~0.167, so as little as ~2 seconds of driving
+# already accumulates more than a 10.0 penalty -- a policy dying after a
+# short high-speed burst (observed: ~85-92m covered in ~2-3s before
+# crashing) was still net-positive for the whole episode even with the
+# penalty in place. 100.0 requires roughly 10 seconds of at-cap driving to
+# break even, comfortably longer than the ~2-3s bursts observed so far,
+# while staying well under a full episode's achievable reward (~1200 over
+# a 120s round at the speed cap) so it shouldn't by itself reintroduce the
+# "do nothing" freeze from before (WEIGHT_IDLE already guards against that
+# separately). See docs/lab_notebook.md's 2026-09-01 entry and
+# experiments/2026-09-01_speed-cap-seed909/notes.md for the arithmetic.
+WEIGHT_TERMINAL_PENALTY = 100.0
 # Added 2026-09-01 after the idle+terminal-penalty reward still produced a
 # checkpoint (seed 909, either 60s or 120s training rounds) that reached
 # 100% elimination while averaging 40 m/s -- confirmed by direct A/B test
@@ -80,7 +93,20 @@ WEIGHT_TERMINAL_PENALTY = 10.0
 # experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/notes.md.
 MAX_REWARDED_SPEED_MPS = 10.0
 
-WALL_WARNING_DISTANCE_M = 3.0
+# WALL_WARNING_DISTANCE_M raised 3.0 -> 6.0 and WEIGHT_WALL_PROXIMITY raised
+# 0.5 -> 1.0 (2026-09-01) as a direct wall-avoidance strengthening pass,
+# alongside the WEIGHT_TERMINAL_PENALTY raise above: every crashing
+# checkpoint so far has driven at 15-40+ m/s, and at those speeds a 3.0m
+# warning distance gives almost no reaction time (covered in well under a
+# tenth of a second at 38 m/s) -- the proximity penalty was only ever
+# ramping up once a collision was already essentially unavoidable. 6.0m
+# gives real lead time even at the MAX_REWARDED_SPEED_MPS cruising speed
+# (~0.6s at 10 m/s), and doubling the weight makes the signal comparable
+# in scale to WEIGHT_PROGRESS so avoiding a wall competes with, rather
+# than being dominated by, going forward. See docs/lab_notebook.md's
+# 2026-09-01 entry.
+WEIGHT_WALL_PROXIMITY = 1.0
+WALL_WARNING_DISTANCE_M = 6.0
 WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
 
 # Real, exact elimination (`damage == 1.0`) is never observed in-band: the
