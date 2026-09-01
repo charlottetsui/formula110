@@ -321,18 +321,32 @@ primary approach, roughly in order of expected leverage:
    behavior, it just wasn't divided by race count at the time.) See
    `experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/notes.md`.
 
-   **New leading hypothesis (not yet tested):** `forward_progress_m` in
-   `src/training/reward.py` (`speed_mps * cos(heading_error) * dt_s`) has
-   no upper bound — nothing caps the reward benefit of going faster, so a
-   policy that discovers "more speed = more reward, monotonically" has no
-   structural reason to stop pushing speed higher, and a one-time
-   `WEIGHT_TERMINAL_PENALTY = 10.0` may simply be smaller than the
-   cumulative reward from a sustained high-speed burst before crashing.
+   **Causal test 5 (run, hypothesis rejected):** added
+   `MAX_REWARDED_SPEED_MPS = 10.0`, capping the speed used in
+   `forward_progress_m` (chosen above the zero-elimination seed-110
+   checkpoint's ~6.9 m/s and the heuristic baseline's ~5 m/s, well below
+   the 15-40+ m/s crash regime). Re-ran with seed `909` held fixed, same
+   120s training round as causal test 3. **Essentially no effect**: avg
+   max speed 40.5 → 38.8 m/s, elimination rate unchanged at 10/10. See
+   `experiments/2026-09-01_speed-cap-seed909/notes.md`.
 
-   Paused this causal-test chain here (five experiments deep, one
-   hypothesis rejected outright) to get direction on which of several
+   **Why, quantitatively:** at the capped speed, progress reward is
+   `1.0 * 10.0 / 60 ≈ 0.167` per tick. Sustained for just 2-3 seconds
+   (120-180 ticks) — roughly what it takes to cover the observed ~85-92m
+   at ~38 m/s before crashing — that's already 20-30 cumulative reward,
+   2-3x `WEIGHT_TERMINAL_PENALTY = 10.0`. The cap removed the reward for
+   exceeding 10 m/s, but did nothing to change the more basic fact that a
+   short, capped-speed burst is already profitable enough to make dying
+   net-positive for the episode. The lever that matters is the *size* of
+   `WEIGHT_TERMINAL_PENALTY` relative to achievable per-episode cumulative
+   reward, not the shape of the progress term.
+
+   Paused this causal-test chain here (six experiments deep, two
+   hypotheses rejected outright) to get direction on which of several
    plausible next steps to prioritize — see `docs/lab_notebook.md`'s
-   2026-09-01 entry for the options. **Best checkpoint from today remains
+   2026-09-01 entry for the options, now including a quantitatively-
+   motivated one (raise `WEIGHT_TERMINAL_PENALTY` into the tens, not just
+   comparable to `WEIGHT_DAMAGE`). **Best checkpoint from today remains
    the original `2026-09-01_scaled-training-budget` (seed 110): 0/10
    eliminations, ~6.9 m/s max speed, 10/10 wins vs. `crash_fast`.**
 1. **Training budget** — scale up races/round length/gradient updates.

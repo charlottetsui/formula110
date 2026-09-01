@@ -883,3 +883,81 @@ more specific candidate:
    real outcome distribution.
 4. Add a hard action/speed cap at the controller level as a safety
    backstop independent of reward shaping.
+
+---
+
+## 2026-09-01 (continued, 7)
+
+**Participants and contributions:** Charlotte Tsui — directed testing the
+speed-cap hypothesis and re-evaluating. Claude Code (AI agent) —
+implemented it, got another null result, and this time worked out a
+quantitative explanation rather than just a qualitative one.
+
+**Question or objective:** Test the previous entry's new leading
+hypothesis: does capping the reward benefit of speed (removing the
+incentive to exceed some threshold) stop the seed-909 policy from driving
+at 40 m/s and dying every race?
+
+**What we investigated or changed:** Added `MAX_REWARDED_SPEED_MPS = 10.0`
+to `src/training/reward.py`; the speed used in `forward_progress_m` is now
+`copysign(min(abs(speed_mps), 10.0), speed_mps)` instead of the raw,
+unbounded `speed_mps`. Chose 10.0 as above both the only zero-elimination
+checkpoint's speed range (seed 110, ~6.9 m/s avg max) and the competent
+heuristic baseline (~5 m/s), but well below the 15-40+ m/s crash regime.
+Added 2 tests (`tests/test_training_reward.py`): progress reward still
+scales with speed below the cap, and is exactly equal (saturates) for any
+speed at or above it. Re-ran with seed `909` held fixed, same 120s
+training round as the previous entry, for direct comparison.
+
+**Evidence:**
+- Sources or documentation: none beyond the experiments' own output.
+- AI-agent assistance: Claude Code did not stop at "the cap didn't work" --
+  worked out the actual arithmetic (per-tick reward at the capped speed,
+  compared against `WEIGHT_TERMINAL_PENALTY` over a range of sustained
+  durations) to explain *why*, before writing anything down. Ran
+  `ruff`/`pyright` (strict, 0 errors)/`pytest -q` (146 passed) before
+  running the experiment.
+- Commits or code: `src/training/reward.py` (`MAX_REWARDED_SPEED_MPS`),
+  `tests/test_training_reward.py` (2 new tests), `docs/rl_design.md` §6.
+- Experiment output: `experiments/2026-09-01_speed-cap-seed909/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** Another null result on the metric that matters: avg
+max speed 40.5 -> 38.8 m/s (essentially unchanged), elimination rate
+unchanged at 10/10. The quantitative explanation: at the capped speed,
+progress reward is `1.0 * 10.0 / 60 ≈ 0.167` per tick. The observed scored
+distance (~85-92m) at the observed speed (~38 m/s) implies the car covers
+that ground in roughly 2-3 seconds before crashing -- and 2-3 seconds of
+capped-speed reward (20-30) already exceeds `WEIGHT_TERMINAL_PENALTY =
+10.0`, 2-3x over. The cap removed the reward for exceeding 10 m/s, but did
+nothing to change the more basic fact that a short burst at (or even
+under) the cap speed is already profitable enough to make dying net-
+positive for the whole episode. Two hypotheses rejected now (train/eval
+mismatch, uncapped-speed reward) -- the common thread across both is that
+`WEIGHT_TERMINAL_PENALTY = 10.0` is simply too small relative to
+achievable per-episode reward, not the shape of any other term.
+
+**Decision and rationale:** Keep `MAX_REWARDED_SPEED_MPS` (harmless, closes
+off unbounded reward-hacking in principle even though it didn't fix this
+seed's problem alone). Do not adopt this checkpoint. Reframe the leading
+hypothesis around magnitude, not shape: `WEIGHT_TERMINAL_PENALTY` needs to
+be large enough to dominate several seconds of achievable reward, not
+comparable to a single tick or to `WEIGHT_DAMAGE`'s per-hit scale.
+
+**Next steps (options, refined with the new quantitative reasoning):**
+1. **(now the most quantitatively motivated)** Raise
+   `WEIGHT_TERMINAL_PENALTY` substantially -- into the tens (50-100+),
+   not single digits, so it reliably dominates a multi-second high-speed
+   burst rather than breaking even against about one second of it.
+2. Switch from "no additional credit above the cap" to an *active*
+   penalty for exceeding it, on top of raising the terminal penalty.
+3. Try the current reward on seed 110 (the "good" seed) to see if this
+   failure is seed-909-specific or general -- still open.
+4. Run a small seed sweep (3-5 seeds) at the current reward to see the
+   real outcome distribution -- still open.
+5. Add a hard action/speed cap at the controller level as a safety
+   backstop independent of reward shaping -- still open, and increasingly
+   worth considering given two reward-side fixes in a row haven't moved
+   the elimination rate at all.

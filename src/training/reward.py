@@ -59,6 +59,26 @@ IDLE_SPEED_MPS = 0.5
 # have avoided. See docs/lab_notebook.md's 2026-09-01 entry and
 # experiments/2026-09-01_idle-penalty-seed909/notes.md.
 WEIGHT_TERMINAL_PENALTY = 10.0
+# Added 2026-09-01 after the idle+terminal-penalty reward still produced a
+# checkpoint (seed 909, either 60s or 120s training rounds) that reached
+# 100% elimination while averaging 40 m/s -- confirmed by direct A/B test
+# (deterministic vs. stochastic evaluation of the same weights, essentially
+# identical) that this was substantively learned, not an eval-mode
+# artifact. `forward_progress_m` previously scaled linearly with
+# `speed_mps` with no ceiling, so a policy that discovers "more speed =
+# more reward, monotonically" had no structural reason to stop -- a
+# one-time WEIGHT_TERMINAL_PENALTY can be outweighed by a large enough
+# high-speed burst beforehand. This caps the *speed used for the progress
+# reward* (not the action itself, and not the other terms) so reward stops
+# increasing past this point. Chosen from the observed speed range of the
+# only checkpoint so far with zero eliminations (seed 110, avg max speed
+# ~6.9 m/s, individual races 4.9-8.5 m/s) and the competent heuristic
+# baseline (`default_student_controller`, ~5 m/s sustained): set above
+# both so genuinely fast, safe driving is still fully rewarded, but well
+# below the 15-40+ m/s regime seen in every crash-every-race checkpoint.
+# See docs/lab_notebook.md's 2026-09-01 entry and
+# experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/notes.md.
+MAX_REWARDED_SPEED_MPS = 10.0
 
 WALL_WARNING_DISTANCE_M = 3.0
 WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
@@ -74,7 +94,10 @@ NEAR_ELIMINATION_DAMAGE = 0.9
 
 def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
     """Return the proxy reward for the transition from `previous` to `current`."""
-    forward_progress_m = current.odometry.speed_mps * math.cos(math.radians(current.camera.heading_error_degrees))
+    rewarded_speed_mps = math.copysign(
+        min(abs(current.odometry.speed_mps), MAX_REWARDED_SPEED_MPS), current.odometry.speed_mps
+    )
+    forward_progress_m = rewarded_speed_mps * math.cos(math.radians(current.camera.heading_error_degrees))
     forward_progress_m *= current.dt_s
     damage_delta = max(0.0, current.contact.damage - previous.contact.damage)
     reverse_penalty = max(0.0, -current.odometry.speed_mps)

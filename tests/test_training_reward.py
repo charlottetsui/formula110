@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from racing.student.api import CameraSensors, ContactSensors, LidarSensors, OdometrySensors, RobotSensors
-from training.reward import IDLE_SPEED_MPS, NEAR_ELIMINATION_DAMAGE, is_new_episode, is_terminal, step_reward
+from training.reward import (
+    IDLE_SPEED_MPS,
+    MAX_REWARDED_SPEED_MPS,
+    NEAR_ELIMINATION_DAMAGE,
+    is_new_episode,
+    is_terminal,
+    step_reward,
+)
 
 
 def test_step_reward_rewards_forward_progress_aligned_with_track_heading() -> None:
@@ -65,6 +72,22 @@ def test_step_reward_idle_penalty_only_applies_below_the_speed_threshold() -> No
     at_threshold = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=IDLE_SPEED_MPS))
 
     assert step_reward(previous, just_below_threshold) < step_reward(previous, at_threshold)
+
+
+def test_step_reward_progress_scales_with_speed_below_the_cap() -> None:
+    previous = RobotSensors(dt_s=1 / 60)
+    slower = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS / 2))
+    faster = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS))
+
+    assert step_reward(previous, slower) < step_reward(previous, faster)
+
+
+def test_step_reward_progress_saturates_above_the_speed_cap() -> None:
+    previous = RobotSensors(dt_s=1 / 60)
+    at_cap = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS))
+    far_above_cap = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS * 4))
+
+    assert step_reward(previous, at_cap) == step_reward(previous, far_above_cap)
 
 
 def test_step_reward_applies_a_one_time_penalty_for_the_terminal_transition() -> None:
