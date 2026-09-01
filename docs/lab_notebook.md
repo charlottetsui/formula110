@@ -523,3 +523,82 @@ already what the docstring claimed to do.
 
 **Next steps:** None new — this was a correctness fix, not a modeling
 change. Resume with the repeated-seed training-budget run next.
+
+---
+
+## 2026-09-01 (continued, 3)
+
+**Participants and contributions:** Charlotte Tsui — directed the
+repeated-seed run to continue improving the model. Claude Code (AI agent)
+— ran it, found the result was far more consequential than a noisy pace
+number, and analyzed why.
+
+**Question or objective:** Repeat the scaled-training-budget configuration
+with only the training seed changed, to check whether the earlier pace
+regression (1.84 -> 1.31 m/s) was signal or noise.
+
+**What we investigated or changed:** Ran
+`scripts/train_sac.py --races 10 --round-seconds 60 --buffer-capacity
+150000 --eval-round-seconds 120 --seed 909` — identical to
+`2026-09-01_scaled-training-budget` except `--seed 110` -> `--seed 909`.
+Compared full per-race stats (not just scored distance) between the two
+runs.
+
+**Evidence:**
+- Sources or documentation: none beyond the two experiments' own
+  `eval_results.json`.
+- AI-agent assistance: Claude Code noticed the headline number
+  (avg scored distance 100.7m -> 2.2m) was extreme enough to warrant
+  checking *why*, not just recording it as "more noise" — pulled damage,
+  off-track, wall-contact, and low-progress per race for both runs before
+  writing anything down, which is what surfaced the zero-damage/zero-off-
+  track/zero-wall-contact pattern.
+- Commits or code: `docs/rl_design.md` §6 (reprioritized, new item 0;
+  renumbered items 2-7 -> 3-8).
+- Experiment output:
+  `experiments/2026-09-01_scaled-training-budget-seed909/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** Not a noisy version of the seed-110 result — a
+qualitatively different, worse failure mode. Across all 10 evaluation
+races for seed 909: **damage was exactly 0.000, off-track time was exactly
+0.0s, and wall contact was exactly 0.0s, every single time.** But
+low-progress time averaged 26.8% of each race (vs. 17.4% for seed 110),
+avg scored distance was 2.2m (vs. 100.7m), and it lost a race outright
+(0/2 vs. `crash_fast` on seed 7, vs. 10/10 wins for the seed-110 policy).
+This looks like the policy converged to a "do nothing" local optimum:
+standing still or crawling never incurs `WEIGHT_DAMAGE = 5.0`,
+`WEIGHT_CONTACT`, or (near spawn) `WEIGHT_CENTER_OFFSET`, and nothing in
+the reward penalizes near-zero forward speed specifically
+(`WEIGHT_REVERSE` only fires on negative speed) — so freezing can be
+locally rational given how the reward is currently weighted. The seed-110
+policy apparently avoided this trap and learned to drive with some risk
+instead, but we now have no idea how often each outcome occurs (n=2).
+
+**Decision and rationale:** This overrides the read from earlier today
+("training budget is the bottleneck, not reward shape") — training budget
+was clearly *insufficient on its own* to reliably produce a competent
+policy; a second seed produced a policy that is safe but nearly useless.
+Reprioritized `docs/rl_design.md` §6: reward risk-asymmetry (specifically,
+the lack of any penalty for near-zero speed, and the size of
+`WEIGHT_DAMAGE` relative to `WEIGHT_PROGRESS`) is now item 0, ahead of
+further training-budget scaling. Not adopting the seed-909 checkpoint
+(strictly worse for racing than seed-110's). Not changing the reward yet
+without running the proposed causal test first.
+
+**Next steps:**
+- Proposed to Charlotte (not yet run): re-run with seed `909` held fixed
+  and a targeted reward change (mild near-zero-speed penalty, or a lower
+  `WEIGHT_DAMAGE`) to test whether it prevents the freeze -- a clean
+  causal test since the seed is held constant.
+- Alternative considered: run 2-3 more seeds at the current config first
+  to characterize how often each regime occurs, before changing the
+  reward. Either is reasonable; asked Charlotte which to prioritize.
+- Longer-term: the training-seed-vs-eval-seed overlap noticed while doing
+  this analysis (training has used seed `110`, which is also in the fixed
+  5-seed evaluation set, in every run so far) should eventually be fixed
+  so evaluation seeds are genuinely held out -- not urgent given the
+  current findings are about qualitative behavior, not close numeric
+  comparisons, but worth fixing before final leaderboard evaluation.

@@ -245,49 +245,71 @@ Results, logs, and configs for this and later runs live under
 Candidates for the next round of experiments once SAC is selected as the
 primary approach, roughly in order of expected leverage:
 
-0. **Training budget** — scale up races/round length/gradient updates
-   before drawing further conclusions about reward shape, network size, or
-   anything else. First attempt (2026-09-01: races 6→10, round length
-   15s→60s, ~2,400→17,751 gradient updates, same reward/hyperparameters/
-   seed as the reward-reweight run) raised raw distance from ~13-30% of a
-   lap to ~75-95%, produced the first-ever completed lap in evaluation
-   (seed 2024, 98.6s lap time), and improved off-track fraction (~18% ->
-   ~12%) with damage/marshal rate roughly flat. But average forward *pace*
-   (raw distance / round length) did not improve and may have slightly
-   regressed (1.84 -> 1.31 m/s vs `crash_fast`) — this is a single training
-   run with a single seed, so that specific number could be noise rather
-   than signal. **Immediate next step: repeat this exact configuration with
-   only the training random seed changed**, to determine whether the pace
-   figure reproduces, before scaling training budget further or drawing
-   conclusions about a speed/track-following trade-off. See
-   `docs/lab_notebook.md`'s 2026-09-01 entry and
-   `experiments/2026-09-01_scaled-training-budget/notes.md`.
-1. **Reward shaping** — tune `w_progress`/`w_center`/`w_wall` weights;
+0. **Reward risk-asymmetry / seed instability (new top priority,
+   2026-09-01)** — the repeated-seed check below turned up something more
+   important than a noisy pace number: at the scaled training budget, two
+   different training seeds converged to **qualitatively different
+   behaviors**, not two samples of similar competence. Seed `110`:
+   damage/off-track/wall-contact all nonzero, real progress (avg 100.7m
+   scored distance vs. `crash_fast`, 10/10 race wins). Seed `909`: **zero**
+   damage, **zero** off-track time, **zero** wall contact in every one of
+   10 evaluation races, but 27% of each race spent essentially stationary
+   or crawling (avg 2.2m scored distance, only 5/10 wins, lost one race
+   outright). The seed-909 policy appears to have found a "do nothing"
+   local optimum: standing still/crawling never touches
+   `WEIGHT_DAMAGE = 5.0`, `WEIGHT_CONTACT`, or (if it stays near spawn)
+   `WEIGHT_CENTER_OFFSET`, and nothing in the reward directly penalizes
+   near-zero forward speed (`WEIGHT_REVERSE` only fires on *negative*
+   speed) — so it can be a locally rational strategy to just not drive.
+   See `experiments/2026-09-01_scaled-training-budget-seed909/notes.md`
+   and `docs/lab_notebook.md`'s 2026-09-01 entry for the full comparison.
+   **Proposed next experiment:** re-run with seed `909` held fixed and a
+   targeted reward change (e.g. a mild penalty for near-zero speed, or
+   reducing `WEIGHT_DAMAGE` relative to `WEIGHT_PROGRESS`) to test whether
+   it prevents the freeze — a clean causal test since the seed that
+   produced the pathological behavior is held constant. Not yet run.
+1. **Training budget** — scale up races/round length/gradient updates.
+   First attempt (2026-09-01: races 6→10, round length 15s→60s,
+   ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the
+   reward-reweight run) raised raw distance from ~13-30% of a lap to
+   ~75-95%, produced the first-ever completed lap in evaluation (seed
+   2024, 98.6s lap time), and improved off-track fraction (~18% -> ~12%)
+   with damage/marshal rate roughly flat — but only for that one training
+   seed. The repeated-seed check (item 0 above) shows training budget
+   alone does not reliably produce a competent driving policy: it can
+   also produce the frozen/"do nothing" failure mode. Read as evidence
+   that **training budget and reward risk-asymmetry are both live
+   issues**, not that budget was the sole bottleneck as first thought
+   after the 2026-09-01 reward-reweight null result.
+2. **Reward shaping** — tune `w_progress`/`w_center`/`w_wall` weights;
    check whether the proxy reward and real scored distance move together
    across training (the divergence check from §2.3). A first attempt
    (raising `w_center` 0.05 → 0.3, everything else held fixed, same
-   training seed/hyperparameters as the 2026-08-31 baseline) produced no
-   measurable change in off-track time, marshal count, or scored distance
-   against either baseline — see `docs/lab_notebook.md`'s 2026-09-01 entry.
-   Read at the time as evidence that **training budget (item 0 above) was
-   the bottleneck, not reward shape**. Scaling up training budget (item 0)
-   did subsequently improve off-track fraction, so this reading holds so
-   far, but re-test reward shaping again once item 0's pace question is
-   resolved with a repeated-seed run.
-2. **Robustness across seeds** — widen the training seed distribution
+   training seed/hyperparameters as the 2026-08-31 baseline, before the
+   training-budget scale-up) produced no measurable change — see
+   `docs/lab_notebook.md`'s 2026-09-01 entry. Superseded in priority by
+   item 0's more specific, causally-testable hypothesis (the damage-weight
+   risk asymmetry), but broader reward tuning (progress/center/wall
+   weights together) remains worth revisiting once item 0 is resolved.
+3. **Robustness across seeds** — widen the training seed distribution
    (rather than a fixed handful) so the policy doesn't overfit to specific
-   spawn points; evaluate on held-out seeds never used in training.
-3. **Opponent traffic** — increase `copies_per_side` so self-play produces
+   spawn points; evaluate on held-out seeds never used in training. Note
+   this is about the *spawn-point* seed distribution used during training,
+   distinct from item 0's finding about training-*run* (network/
+   exploration) seed sensitivity — both matter, but item 0 is the more
+   urgent one since it produces qualitatively broken policies, not just
+   overfit ones.
+4. **Opponent traffic** — increase `copies_per_side` so self-play produces
    denser traffic, and start using `sensors.lidar` /
    `camera.competitors` in the observation once solo-track driving is
    solid.
-4. **Network/optimizer tuning** — hidden sizes, learning rates, target
+5. **Network/optimizer tuning** — hidden sizes, learning rates, target
    network update rate (`tau`), entropy temperature (fixed vs. learned).
-5. **Replay buffer** — size, and whether uniform sampling is good enough or
+6. **Replay buffer** — size, and whether uniform sampling is good enough or
    prioritized replay is worth the complexity.
-6. **Reduce hesitation** — penalize small/oscillating steering deltas if
+7. **Reduce hesitation** — penalize small/oscillating steering deltas if
    the trained policy shows jittery control in watched races.
-7. **Packaging for the leaderboard** — export the trained policy as a
+8. **Packaging for the leaderboard** — export the trained policy as a
    frozen-weights `Controller` under `src/controllers/` per the
    [packaging contract](../README.md#packaging-a-controller): CPU-only,
    evaluation/inference mode, well under 512 MiB, no training-only
