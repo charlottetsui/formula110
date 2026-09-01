@@ -1219,3 +1219,300 @@ a reliable, competitive controller from seed 110.
    ready controller (no `training/` dependency) per the refinement plan.
 5. Watch it live (`controllers.sac_candidate`) for a qualitative check --
    all evidence so far is headless stats.
+
+---
+
+## 2026-09-01 (continued, 11)
+
+**Participants and contributions:** Charlotte Tsui -- asked for the
+Gradescope submission to be created for the SAC controller; when told the
+rubric actually names two required modules (`minimum_viable` +
+`race_faster`) and only the SAC side exists, chose to submit SAC-only as
+`race_faster` rather than also writing a `minimum_viable` heuristic.
+Claude Code (AI agent) -- read `autograder/README.md` and
+`scripts/export_student_controllers.py` to understand the actual
+submission contract (not just `README.md`'s general packaging section),
+wrote the self-contained controller, and verified it before treating the
+export as done.
+
+**Question or objective:** Package the current best SAC checkpoint
+(`2026-09-01_more-training-seed110`, refinement plan item 8) as an
+actual Gradescope-uploadable submission, not just a local-dev viewer.
+
+**What we investigated or changed:** Read `autograder/README.md` (not
+previously covered in this doc) and found the real submission contract:
+`scripts/export_student_controllers.py` produces the upload zip, rooted at
+`controllers/`, and the grading config names two module slots --
+`controllers.minimum_viable` and `controllers.race_faster` -- each graded
+independently (missing module = zero on that module's points, not a
+failure of the whole submission). `sac_candidate.py` (the existing
+checkpoint viewer) is explicitly not submission-ready: it imports
+`training.observation`/`training.sac`, which live outside
+`src/controllers/` and are not followed by the export script's
+`controllers.*`-only dependency scanner.
+
+Wrote `src/controllers/race_faster.py`: inlines the observation encoding
+(`training/observation.py`) and just the inference half of the actor
+network (`training/sac.py`'s `GaussianPolicy`, dropping the critics/
+sampling/optimizer code that's training-only) so the module has zero
+dependency outside `src/controllers/`. Extracted only the `"policy"` key
+from `experiments/2026-09-01_more-training-seed110/checkpoints/
+policy_final.pt` (396KB, includes critics/targets/log_alpha for resuming
+training) into a trimmed `src/controllers/checkpoints/
+race_faster_policy.pt` (81KB, policy weights only). Always acts
+deterministically (inference, not training).
+
+**Evidence:**
+- Sources or documentation: `autograder/README.md` (submission layout,
+  rubric, module-naming convention), `README.md`'s packaging-a-controller
+  and CPU/memory-boundary sections, `scripts/export_student_controllers.py`
+  (read, not edited, to confirm what the dependency scanner does and does
+  not follow).
+- AI-agent assistance: Claude Code read the actual export/autograder
+  scripts rather than assuming the general packaging-contract README
+  section was the whole story -- that's what surfaced the two-module
+  rubric structure and the checkpoint-not-followed-by-static-import gap.
+  Verified the packaged module three ways before calling it done: (1) a
+  Python check that `race_faster`'s policy output matches
+  `SACAgent.act(..., deterministic=True)` from the full checkpoint
+  bit-for-bit (`atol=1e-6`) on 5 random observations; (2) `ruff check`,
+  `ruff format --check`, and `pyright` (project's strict-mode config,
+  matching the rubric's Pyright-strict check) all clean; (3) an actual
+  `uv run racing h2h` race (seed 110, 30s, vs. `crash_fast`) confirming
+  real driving behavior, not just synthetic-observation output. Asked the
+  user via `AskUserQuestion` whether to also write a `minimum_viable`
+  heuristic controller before proceeding, since that's materially
+  different work than "package my SAC controller" and CLAUDE.md scopes
+  this track to Charlotte's own SAC work -- user chose SAC-only.
+- Commits or code: `src/controllers/race_faster.py`,
+  `src/controllers/checkpoints/race_faster_policy.pt`,
+  `docs/rl_design.md` section 6 item 8 (marked done).
+- Experiment output: n/a (packaging, not a new training run); source
+  checkpoint is `experiments/2026-09-01_more-training-seed110/`.
+- Leaderboard result: not yet submitted to Gradescope.
+
+**What we observed:** The trimmed, self-contained module reproduces the
+full checkpoint's behavior exactly (bit-for-bit deterministic-action
+match) and drives correctly in a real race: seed 110, 30s round, 0
+eliminations, 18.3 m/s max speed, 1 lap, 210.6m raw distance vs.
+`crash_fast`'s 16.4m, 0.075 damage -- consistent with the checkpoint's
+documented behavior in the previous entry. `scripts/export_student_
+controllers.py --all-controllers` (needed because the checkpoint is a
+non-Python file the module-selection mode's import-following wouldn't
+pick up) produced `artifacts/formula110-student-controllers.zip`
+containing `controllers/race_faster.py`, its checkpoint, `__init__.py`,
+`py.typed`, and (harmlessly, since Gradescope only grades configured
+module names) the existing `crash_fast.py` starter and `sac_candidate.py`
+dev viewer.
+
+**Decision and rationale:** Submit only `controllers.race_faster` for
+now. The rubric's `minimum_viable` module (a hand-tuned heuristic judged
+on zero damage/wall-contact) is a different, non-RL deliverable that
+CLAUDE.md's scope guardrails and the user's explicit choice both place
+outside this session's work -- it's a gap to close later (by this track
+or a separate assignment pass), not something to improvise into today's
+SAC-packaging task. `docs/rl_design.md` updated in the same session per
+CLAUDE.md step 5.
+
+**Next steps:**
+1. Decide who/when writes `controllers.minimum_viable` -- without it, the
+   submission is capped at the 35 `race_faster`-only rubric points (out of
+   100) and is not leaderboard-eligible until both modules are present per
+   `autograder/README.md`.
+2. Actually upload `artifacts/formula110-student-controllers.zip` to the
+   Gradescope assignment (not done by this session -- packaging only).
+3. Watch `controllers.race_faster` live for a qualitative check, same as
+   the standing item on `sac_candidate`.
+
+---
+
+## 2026-09-01 (continued, 12)
+
+**Participants and contributions:** Charlotte Tsui -- attempted the
+upload from the previous entry, hit a Gradescope rejection, reported the
+exact error text, and supplied the fix (manifest schema and which two
+extra files to include) once she'd found it. Asked for the fix to be
+codified in `CLAUDE.md` and for the root cause to be debugged. Claude
+Code (AI agent) -- applied the fix to the zip, then investigated why the
+previously-documented process (which had been based on reading
+`autograder/README.md` and `scripts/export_student_controllers.py`
+directly) hadn't surfaced this requirement.
+
+**Question or objective:** The Gradescope upload of
+`artifacts/formula110-student-controllers.zip` from the previous entry
+failed with "expected formula110-submission.json at the root of the
+submission." Why didn't the documented submission process catch this,
+and how do we make sure future submissions don't hit it again?
+
+**What we investigated or changed:** Re-grepped the entire repo
+(case-insensitive) for `submission.json` and `manifest` -- zero hits
+anywhere in `autograder/`, `scripts/export_student_controllers.py`,
+`README.md`, or `autograder/README.md`. Read the full 489 lines of
+`autograder/gradescope/grade.py` (previously only its first ~60 lines had
+been read) specifically for any manifest-reading logic -- none exists;
+it reads the modules to grade from an instructor-baked
+`/opt/formula110-autograder/config.json` built by
+`scripts/build_gradescope_autograder.py`, not from anything inside the
+student's submission zip. Conclusion: the requirement is real (fixing it
+worked), but it is not represented anywhere in this repo's checked-in
+`autograder/` bundle or docs -- the **live** Gradescope autograder for
+this assignment has diverged from the local trusted bundle, most likely
+an instructor-side update to the deployed autograder that was never
+back-ported into this repository's `autograder/` snapshot.
+
+Fixed the immediate submission by appending three files to the zip root
+(not inside `controllers/`, and not produced by
+`scripts/export_student_controllers.py`, which has no support for this
+and wasn't edited to add any): `formula110-submission.json`
+(`{"schema_version": 1, "controller_module": "controllers.race_faster"}`),
+plus unmodified copies of `pyproject.toml` and `uv.lock`. Documented the
+requirement in `CLAUDE.md` under a new "Packaging a Gradescope
+submission" section so this is a standing step rather than something
+rediscovered by trial and error on the next submission.
+
+**Evidence:**
+- Sources or documentation: full read of `autograder/gradescope/grade.py`
+  (489 lines); repo-wide grep for `submission.json`/`manifest` (no
+  matches); the user's literal Gradescope error text and the working fix
+  they supplied.
+- AI-agent assistance: Claude Code did not guess at the manifest schema
+  or claim to know why the live autograder differs from the checked-in
+  bundle -- when first asked to create the submission, it said plainly
+  that the required file didn't appear anywhere in the repo and asked the
+  user to supply the actual requirement rather than fabricating a schema.
+  Once the user supplied the schema and the fix worked, Claude Code did
+  the root-cause read (full `grade.py`, repo-wide grep) to confirm the gap
+  was real and repo-wide, not a file it had simply missed on the first
+  pass.
+- Commits or code: `CLAUDE.md` (new "Packaging a Gradescope submission"
+  section); `artifacts/formula110-student-controllers.zip` (rebuilt with
+  the three added root files -- not committed, gitignored build output).
+- Experiment output: n/a.
+- Leaderboard result: submission uploaded successfully to Gradescope
+  after the fix (per user confirmation); grading outcome not yet known.
+
+**What we observed:** The fix resolved the upload error. The gap is
+entirely on the documentation/tooling side, not the controller itself --
+`controllers/race_faster.py` and its checkpoint were already correct and
+verified in the previous entry.
+
+**Decision and rationale:** Codified the three-extra-files recipe in
+`CLAUDE.md` rather than in `docs/rl_design.md` or
+`experiments/README.md`, since it's a submission-mechanics step that
+applies regardless of which experiment or checkpoint is being submitted,
+not something tied to a specific run's evidence. Framed it as "the live
+autograder is authoritative over the local `autograder/` bundle when they
+conflict" rather than trying to fix or explain the divergence itself,
+since nothing in this repo shows *why* the live side changed and
+`autograder/` is course-owned infrastructure this track does not edit.
+
+**Next steps:**
+1. If the live autograder's contract changes again, update the
+   `CLAUDE.md` recipe rather than assuming the old one still holds.
+2. Once a `controllers.minimum_viable` module exists (still open from the
+   previous entry), confirm whether the manifest schema supports naming
+   two modules or only one `controller_module` -- the schema handed to us
+   only had a single field, which may mean the live autograder grades one
+   submitted module at a time rather than the two-module scheme described
+   in the local `autograder/README.md`.
+
+---
+
+## 2026-09-01 (continued, 13)
+
+**Participants and contributions:** Charlotte Tsui -- asked to push
+training further on the `2026-09-01_more-training-seed110` (races=20)
+result to see if it keeps improving. Claude Code (AI agent) -- ran a
+further-doubled training run, found a clean monotonic improvement, and
+on picking the conversation back up found (via the "changed on disk"
+notice) that entries 11-12 had packaged and submitted the races=20
+checkpoint as `controllers.race_faster` to Gradescope in the meantime --
+flagged the mismatch rather than silently continuing past it.
+
+**Question or objective:** Does performance keep improving with more
+training beyond `2026-09-01_more-training-seed110` (races=20, 0/20
+eliminations)?
+
+**What we investigated or changed:** Same seed (110), reward, and 120s
+round length as the last two entries;
+`scripts/train_sac.py --races 40 --round-seconds 120 --buffer-capacity
+800000 --eval-round-seconds 120 --seed 110` (`--races` doubled again from
+20). Took 413.2s training (backgrounded past the 120s foreground timeout,
+picked up via completion notification, same pattern as the races=20 run).
+
+On resuming work in this doc, noticed via the harness's "file changed on
+disk" notice that `docs/rl_design.md`, `docs/lab_notebook.md`, and
+`CLAUDE.md` had all been modified since last read here, and two full
+entries (11, 12) already existed describing work done outside this
+conversation thread: packaging the races=20 checkpoint into
+`src/controllers/race_faster.py` (self-contained, no `training/`
+dependency) and successfully submitting it to Gradescope, including
+fixing an undocumented live-autograder submission-manifest requirement
+now codified in `CLAUDE.md`'s new "Packaging a Gradescope submission"
+section. Read those entries and the current `race_faster.py` in full
+before continuing, rather than overwriting or ignoring them.
+
+**Evidence:**
+- Sources or documentation: entries 11-12 of this notebook (read, not
+  written, this session); `CLAUDE.md`'s new packaging section;
+  `src/controllers/race_faster.py` and
+  `src/controllers/checkpoints/race_faster_policy.pt` (read to confirm
+  which checkpoint they package -- `2026-09-01_more-training-seed110`,
+  races=20, not the races=40 result from this entry).
+- AI-agent assistance: Claude Code did not proceed with new work as if
+  the conversation's own history were the complete picture -- it noticed
+  the disk-state mismatch, read the intervening entries fully, and is
+  reporting the resulting packaging gap explicitly rather than silently
+  leaving `race_faster.py` pointed at a now-superseded checkpoint. Ran
+  `ruff`/`pyright`/`pytest -q` (146 passed) before treating this entry's
+  own changes as done.
+- Commits or code: `docs/rl_design.md` §6 (causal test 9).
+- Experiment output: `experiments/2026-09-01_more-training2-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a for this run; the races=20 checkpoint was
+  submitted per entry 12, grading outcome not yet known.
+
+**What we observed:** Training kept improving, cleanly and monotonically:
+
+| training budget | avg damage | avg off-track | avg wall contact | avg max speed | eliminated |
+| --- | --- | --- | --- | --- | --- |
+| races=10 | 0.746 | 1.88s | 0.92s | 30.2 m/s | 6/10 |
+| races=20 (submitted as `race_faster`) | 0.062 | 0.84s | 0.12s | 18.4 m/s | 0/10 |
+| races=40 (this entry) | **0.000** | **0.00s** | **0.00s** | 15.5 m/s | 0/20 |
+
+At races=40: zero damage, zero off-track time, and zero wall contact in
+literally every one of 20 evaluation races (all 5 seeds, both baselines,
+including the 4 held-out ones). Max speed converged tighter (15.4-16.1
+m/s). Still 20/20 race wins, now with a larger average margin. Full detail
+in `experiments/2026-09-01_more-training2-seed110/notes.md`.
+
+**This means the checkpoint currently submitted to Gradescope
+(races=20) is no longer this track's best result** -- races=40 is
+strictly better on every tracked metric (damage, off-track time, wall
+contact all exactly zero vs. small-but-nonzero; comparable or better
+speed/lap count).
+
+**Decision and rationale:** Did not touch `race_faster.py` or resubmit
+without asking -- repackaging and resubmitting to a live, already-graded
+Gradescope assignment is exactly the kind of external/shared-system
+action that warrants confirmation first, not something to do
+unilaterally on the strength of "the numbers are better." Reporting the
+gap to Charlotte and asking whether/how to proceed (repackage now, wait,
+or something else) rather than deciding for her.
+
+**Next steps:**
+1. **Awaiting direction:** repackage `controllers.race_faster` from the
+   races=40 checkpoint and re-submit, using the now-documented
+   `CLAUDE.md` packaging recipe -- or hold off, e.g. if the races=20
+   submission is already graded and stable and Charlotte would rather not
+   disturb it.
+2. Training-budget scaling could plausibly continue (the trend hasn't
+   broken), but safety metrics are already at floor -- further gains
+   would likely be speed/lap-count, not reliability. Optional, given
+   growing wall-clock cost (7:45 for this run).
+3. Still open from entry 11: who/when writes `controllers.minimum_viable`
+   -- without it the submission is capped at partial rubric points per
+   `autograder/README.md`.
+4. Still open: broader seed testing, live qualitative watch, further
+   training-budget scaling if desired.

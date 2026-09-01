@@ -412,11 +412,39 @@ primary approach, roughly in order of expected leverage:
    consistency across seeds, and competitiveness against the strong
    baseline) and is now the reference checkpoint for further work.
 
-   Paused here (eight experiments deep) — see `docs/lab_notebook.md`'s
+   **Causal test 9 (run) — still improving, not plateaued:** same seed,
+   reward, and round length again; `--races 20 → 40` (~60k → ~132k
+   gradient updates). Clean, monotonic trend across all three
+   training-budget levels tested today:
+
+   | training budget | avg damage | avg off-track | avg wall contact | avg max speed | eliminated |
+   | --- | --- | --- | --- | --- | --- |
+   | races=10 | 0.746 | 1.88s | 0.92s | 30.2 m/s | 6/10 |
+   | races=20 | 0.062 | 0.84s | 0.12s | 18.4 m/s | 0/10 |
+   | races=40 | **0.000** | **0.00s** | **0.00s** | 15.5 m/s | 0/20 |
+
+   At races=40: zero damage, zero off-track time, and zero wall contact in
+   **every single one of 20 evaluation races** (all 5 seeds, both
+   baselines) — not just avoiding elimination but not touching a wall or
+   leaving the track at all. Max speed kept dropping and converged very
+   tightly (15.4-16.1 m/s). Still 20/20 race wins, now with a larger
+   margin (~1740-1820m vs. ~1550-1650m average scored distance). See
+   `experiments/2026-09-01_more-training2-seed110/notes.md`.
+
+   **Read:** every tracked metric moved monotonically in the same
+   direction across all three training-budget levels — a genuine learning
+   curve, not noise. Safety-relevant incidents are now at floor (exactly
+   zero across every evaluated race), so further training from here would
+   likely show up as speed/lap-count gains rather than more safety
+   headroom. Reasonable point to pause the training-budget scaling and
+   consider other directions.
+
+   Paused here (nine experiments deep) — see `docs/lab_notebook.md`'s
    2026-09-01 entry for next-step options. **Current best checkpoint:
-   `2026-09-01_more-training-seed110`** — 0/20 eliminations, ~18-21 m/s
-   max speed, 4 laps and 20/20 race wins in every evaluated race across
-   both training and held-out seeds.
+   `2026-09-01_more-training2-seed110`** — 0/20 eliminations, zero
+   damage/off-track/wall-contact in every evaluated race, ~15.5 m/s max
+   speed, 4-5 laps and 20/20 race wins across both training and held-out
+   seeds.
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the
@@ -458,11 +486,47 @@ primary approach, roughly in order of expected leverage:
    prioritized replay is worth the complexity.
 7. **Reduce hesitation** — penalize small/oscillating steering deltas if
    the trained policy shows jittery control in watched races.
-8. **Packaging for the leaderboard** — export the trained policy as a
-   frozen-weights `Controller` under `src/controllers/` per the
-   [packaging contract](../README.md#packaging-a-controller): CPU-only,
-   evaluation/inference mode, well under 512 MiB, no training-only
-   dependencies imported at inference time.
+8. **Packaging for the leaderboard (done, 2026-09-01)** — exported the
+   `2026-09-01_more-training-seed110` checkpoint (causal test 8, current
+   best: 0/20 eliminations, 20/20 race wins) as a self-contained
+   `src/controllers/race_faster.py`, per the
+   [packaging contract](../README.md#packaging-a-controller) and the
+   Gradescope "improved module" convention in
+   [`autograder/README.md`](../autograder/README.md). Unlike
+   `sac_candidate.py` (a local-dev viewer that imports `training/`), this
+   module inlines the actor network and observation encoding so it has no
+   dependency outside `src/controllers/`, loading only the policy weights
+   (trimmed from the full training checkpoint, 396KB -> 81KB, dropping
+   critics/optimizer state) from a bundled `checkpoints/` file. CPU-only,
+   `eval()` + `torch.inference_mode()`, always deterministic. Verified:
+   output matches the full training checkpoint's `agent.act(...,
+   deterministic=True)` bit-for-bit on 5 random observations, passes `ruff
+   check`/`ruff format --check`/`pyright` (project's strict mode) with zero
+   findings, and drives correctly in a real (non-synthetic)
+   `racing h2h` race (seed 110, 30s: 0 damage-eliminations, ~18.3 m/s max
+   speed, 1 lap, 210.6m vs. `crash_fast`'s 16.4m — consistent with the
+   checkpoint's known behavior). Exported via
+   `scripts/export_student_controllers.py --all-controllers` (needed
+   because the checkpoint is a non-Python file) to
+   `artifacts/formula110-student-controllers.zip`.
+
+   **Scope note:** the Gradescope rubric
+   (`autograder/README.md`) actually names two required modules —
+   `controllers.minimum_viable` (a safe heuristic, judged on zero
+   damage/wall-contact) and `controllers.race_faster` (the "improved"
+   module this checkpoint fills, judged on survival + distance vs. the
+   minimum module). No `minimum_viable` module exists yet; per user
+   direction this submission covers only the SAC/`race_faster` half by
+   design — writing a hand-tuned minimum-viable controller was judged out
+   of scope for this track and deferred rather than attempted here.
+
+   **Superseded (2026-09-01, causal test 9):** `race_faster.py` currently
+   packages the races=20 checkpoint. `2026-09-01_more-training2-seed110`
+   (races=40) is strictly better on every tracked metric — zero
+   damage/off-track/wall-contact across all 20 evaluated races, vs. this
+   one's small-but-nonzero damage (avg 0.062) and off-track/wall-contact
+   time. Not yet repackaged pending direction — see
+   `docs/lab_notebook.md`'s 2026-09-01 (continued, 13) entry.
 
 Each refinement experiment should change a limited number of variables at
 once and be compared against both the fixed baseline (`crash_fast`) and the

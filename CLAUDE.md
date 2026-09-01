@@ -57,6 +57,45 @@ stop and flag it rather than editing — that usually means the task is
 out of scope for this track (per step 9) rather than something to route
 around silently.
 
+## Packaging a Gradescope submission
+
+Discovered 2026-09-01 via a real failed upload ("expected
+formula110-submission.json at the root of the submission"): the **live**
+Gradescope autograder for this assignment expects a submission contract
+that this repo's checked-in `autograder/` bundle and
+`scripts/export_student_controllers.py` do not know about or document —
+confirmed by grep, there is no reference to a submission manifest
+anywhere in `autograder/`, `README.md`, or `autograder/README.md` as
+currently checked in. Treat the live Gradescope side as authoritative
+over the local docs here whenever they conflict, per step 1's general
+rule about trusting observed reality over stale plans.
+
+Every time a submission zip is built for upload, do this in addition to
+`scripts/export_student_controllers.py` (which only produces the
+`controllers/` tree and has no flag for the following — it's
+course-provided infra, do not edit it to add one; append these files to
+its output zip after running it instead):
+
+1. Run the export as usual, e.g.
+   `uv run python scripts/export_student_controllers.py --all-controllers`
+   (`--all-controllers` is required whenever the controller module bundles
+   non-Python files, such as a checkpoint).
+2. Add three files to the **root** of that zip (not under `controllers/`):
+   - `formula110-submission.json`:
+     ```json
+     {
+       "schema_version": 1,
+       "controller_module": "controllers.<the module being submitted>"
+     }
+     ```
+     Set `controller_module` to whichever module this submission is
+     grading as the controller (e.g. `controllers.race_faster`).
+   - An unmodified copy of `pyproject.toml` from the repo root.
+   - An unmodified copy of `uv.lock` from the repo root.
+3. Verify the zip's contents (`unzip -l`) before calling the submission
+   ready — confirm all three root files are present alongside
+   `controllers/`.
+
 ## Explicit steps to follow every session
 
 1. **Orient before acting.** Read `docs/rl_design.md` and the last 1–2
