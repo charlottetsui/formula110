@@ -366,3 +366,108 @@ the single-baseline comparison was shown to be misleading.
   wall contact, etc.) to sanity-check the quantitative off-track numbers.
 - Widen the training seed distribution (still single-seed as of this
   entry) — unchanged from the 2026-08-31 next-steps item.
+
+---
+
+## 2026-09-01 (continued)
+
+**Participants and contributions:** Charlotte Tsui — asked for a triage of
+why the car never finishes a race, then approved running the top-priority
+"training budget" experiment. Claude Code (AI agent) — ran the triage
+(read-only, using existing eval data plus the track's total length), then
+implemented and ran the experiment and the pace analysis that followed.
+
+**Question or objective:** Why does the trained controller never finish a
+race (complete a lap), and what's the next highest-leverage experiment to
+try? Then: run that experiment.
+
+**What we investigated or changed:**
+
+- **Triage (no code changes):** computed the track's total lap length
+  (`TrackProgressModel.total_length_m` = 183.07m) and checked `lap_counts`
+  across all 20 evaluation races run so far (both 2026-09-01 experiments):
+  every single one was `0`. Raw distance per race was only 24-54m (13-30%
+  of a lap) in 20s rounds. Concluded the round length itself was the
+  dominant constraint, compounded by training rounds being only 15s — self-
+  play had likely never given the policy experience of the track beyond a
+  short stretch from each spawn point.
+- **Experiment:** scaled training budget as one bundled variable (races
+  6→10, training round length 15s→60s, buffer capacity raised 50k→150k to
+  avoid excess eviction), holding reward weights, network size, and the
+  base training seed (`110`) fixed at the `2026-09-01_center-weight-6x`
+  values. Also raised eval round length 20s→120s so evaluation could
+  actually reveal a completed lap if one happened. Ran via
+  `scripts/train_sac.py --races 10 --round-seconds 60 --buffer-capacity
+  150000 --eval-round-seconds 120`.
+- Updated `src/controllers/sac_candidate.py`'s default checkpoint to this
+  run's, and `docs/rl_design.md` §6 item 0 with the result and the
+  immediate next step.
+
+**Evidence:**
+- Sources or documentation: computed `TrackProgressModel.total_length_m`
+  directly rather than assuming a track length.
+- AI-agent assistance: Claude Code ran the triage entirely from data
+  already on disk (no new experiment needed to answer "why doesn't it
+  finish"); after the training-budget run produced eye-catching raw-
+  distance numbers, it independently normalized every metric by round
+  length before drawing conclusions, which is what caught that average
+  pace hadn't actually improved despite raw distance looking like a big
+  win — flagged as a "verify, don't just report the flattering number"
+  moment worth recording explicitly.
+- Commits or code: `scripts/train_sac.py` (no code change, new CLI args
+  used), `src/controllers/sac_candidate.py` (default checkpoint updated),
+  `docs/rl_design.md` §6 (items 0 and 1 updated).
+- Experiment output: `experiments/2026-09-01_scaled-training-budget/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+- Training: 72,000 transitions, 17,751 gradient updates (vs. 10,788 /
+  2,448 before), in 55.3s wall-clock (vs. 7.5s) — training time scales
+  roughly linearly with total simulated ticks and is still cheap.
+- Evaluation raw totals looked like a large win: average raw distance rose
+  from 13-30% of a lap to 75-95%, and **one race (seed 2024) completed a
+  full lap** — 223m raw distance, 98.6s lap time, the first completed lap
+  in any evaluation run so far, reproduced against both baselines for that
+  seed.
+- Normalizing every metric by round length told a more careful story:
+  - Average raw pace (m/s) **did not improve** and slightly regressed:
+    1.84 → 1.31 m/s vs `crash_fast`, 1.53 → 1.21 m/s vs
+    `default_student_controller`.
+  - Off-track fraction **did improve**: ~17-19.5% → ~11.5-11.8% of the
+    race.
+  - Damage rate (%/s) and marshal rate (interventions/min) were roughly
+    flat (damage: 0.095→0.098 %/s; marshal: mixed, 7.2→5.65/min vs
+    `crash_fast` but 7.8→7.9/min vs `default_student_controller`).
+  - Against `default_student_controller` (~5 m/s sustained, ~600m in
+    120s): still 0/10 race wins; the pace gap remains large.
+- The raw-distance/lap-completion headline is mostly explained by the
+  round simply being 6x longer, not by the car driving faster. The real,
+  smaller win is the off-track-fraction improvement, which is at least
+  directionally consistent with the triage's "longer training rounds
+  expose more of the track" hypothesis. The pace regression is a genuine
+  open question, not yet distinguishable from run-to-run noise, because
+  **this is a single training run with a single training seed** — no
+  repeat trial exists yet for either configuration.
+
+**Decision and rationale:** Adopt this checkpoint as the new reference
+point (real off-track improvement, no cost on damage/marshal rate, first
+completed lap) but do not yet claim it's a faster controller — the pace
+number needs a repeated-seed run before it's trustworthy either way. This
+is exactly the kind of number the course notebook guidance warns against
+reporting on a single run. Updated `docs/rl_design.md` §6 to make the
+repeat-seed test the explicit next step before further scaling.
+
+**Next steps:**
+- Repeat this exact training configuration with only the training random
+  seed changed, to determine whether the pace figure is signal or noise.
+- Watch `controllers.sac_candidate` (now pointed at this checkpoint) in a
+  live race to qualitatively check the speed/track-following trade-off
+  hypothesis.
+- Widen the training seed distribution used for self-play spawns (still
+  single base seed `110` as of this entry).
+- Once pace is understood, continue scaling training budget further, and
+  re-test the reward-weight change now that training budget is less of a
+  confound.

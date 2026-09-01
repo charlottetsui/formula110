@@ -20,6 +20,43 @@ decisions already recorded there.
 | `src/training/` | SAC implementation (replay buffer, actor/critic networks, training loop) — not yet created as of 2026-08-31. |
 | `src/controllers/` | Where the trained, frozen-weights controller gets packaged for racing/leaderboard submission, per `README.md`'s packaging contract. |
 
+## What can and cannot be edited
+
+This repo is a course-provided simulator plus a student-owned track.
+Verified 2026-09-01: `git diff 2e2aee4 HEAD -- src/racing/ autograder/`
+is empty, and none of Charlotte's SAC-track commits (`2b0b5c7`, `2c94b42`,
+`92a0bc7`) touch `src/racing/`, `autograder/`, or any pre-existing
+`tests/`/`scripts/` file — only new files were added alongside them.
+
+**Do not edit — course-provided reference/infrastructure:**
+
+| Path | Why |
+| --- | --- |
+| `src/racing/` | The simulator engine (physics, graphics, race rules, track, sensors, student API contract). The self-play design exists specifically to avoid needing to touch this — see step 9 below. |
+| `autograder/` | Gradescope grading infrastructure, built from a trusted read-only bundle of the simulator. |
+| `README.md`, `GETTING_STARTED.md`, `SENSORS.md`, `LICENSE` | Course-authored reference docs describing the public contract. |
+| `tests/` — every file except `tests/test_training_*.py` | Simulator/autograder contract tests owned by the course. |
+| `scripts/` — every file except `scripts/train_sac.py`, `scripts/eval_sac.py` (or later SAC-track scripts) | Course-provided tooling (asset capture, gamepad diagnostics, Gradescope packaging). |
+| `src/controllers/crash_fast.py` | The course-provided starter controller, kept as a reference example. |
+
+**Freely editable — this track's own work:**
+
+| Path | Notes |
+| --- | --- |
+| `docs/rl_design.md`, `docs/lab_notebook.md` | This track's design doc and log. |
+| `experiments/` | Per-run evidence. |
+| `src/training/` | SAC implementation. |
+| `src/controllers/` (any file other than `crash_fast.py`, e.g. `sac_candidate.py`) | Trained controllers packaged for racing. |
+| `scripts/train_sac.py`, `scripts/eval_sac.py` (and later SAC-track scripts) | This track's training/eval entry points. |
+| `tests/test_training_*.py` | Tests for `src/training/`, added on this track. |
+| `CLAUDE.md` | This file. |
+| `pyproject.toml`, `uv.lock` | Only via `uv add` / `uv sync --managed-python` per step 8 below — never hand-edited directly. |
+
+If a task seems to require changing something in the "do not edit" list,
+stop and flag it rather than editing — that usually means the task is
+out of scope for this track (per step 9) rather than something to route
+around silently.
+
 ## Explicit steps to follow every session
 
 1. **Orient before acting.** Read `docs/rl_design.md` and the last 1–2

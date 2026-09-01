@@ -25,7 +25,9 @@ RACING_NAME = "SAC Candidate"
 RACING_COLOR = "#4C8DFF"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CHECKPOINT = PROJECT_ROOT / "experiments" / "2026-09-01_center-weight-6x" / "checkpoints" / "policy_final.pt"
+DEFAULT_CHECKPOINT = (
+    PROJECT_ROOT / "experiments" / "2026-09-01_scaled-training-budget" / "checkpoints" / "policy_final.pt"
+)
 HIDDEN_SIZES = (128, 128)
 
 

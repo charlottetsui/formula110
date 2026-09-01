@@ -245,12 +245,23 @@ Results, logs, and configs for this and later runs live under
 Candidates for the next round of experiments once SAC is selected as the
 primary approach, roughly in order of expected leverage:
 
-0. **Training budget** (now the top priority — see item 1 below) — scale
-   up races/round length/gradient updates well beyond the 2026-08-31
-   minimum experiment's ~2,400 updates before drawing further conclusions
-   about reward shape, network size, or anything else. Change this as its
-   own isolated variable (same reward, same everything else) so its effect
-   is separable from other changes.
+0. **Training budget** — scale up races/round length/gradient updates
+   before drawing further conclusions about reward shape, network size, or
+   anything else. First attempt (2026-09-01: races 6→10, round length
+   15s→60s, ~2,400→17,751 gradient updates, same reward/hyperparameters/
+   seed as the reward-reweight run) raised raw distance from ~13-30% of a
+   lap to ~75-95%, produced the first-ever completed lap in evaluation
+   (seed 2024, 98.6s lap time), and improved off-track fraction (~18% ->
+   ~12%) with damage/marshal rate roughly flat. But average forward *pace*
+   (raw distance / round length) did not improve and may have slightly
+   regressed (1.84 -> 1.31 m/s vs `crash_fast`) — this is a single training
+   run with a single seed, so that specific number could be noise rather
+   than signal. **Immediate next step: repeat this exact configuration with
+   only the training random seed changed**, to determine whether the pace
+   figure reproduces, before scaling training budget further or drawing
+   conclusions about a speed/track-following trade-off. See
+   `docs/lab_notebook.md`'s 2026-09-01 entry and
+   `experiments/2026-09-01_scaled-training-budget/notes.md`.
 1. **Reward shaping** — tune `w_progress`/`w_center`/`w_wall` weights;
    check whether the proxy reward and real scored distance move together
    across training (the divergence check from §2.3). A first attempt
@@ -258,11 +269,11 @@ primary approach, roughly in order of expected leverage:
    training seed/hyperparameters as the 2026-08-31 baseline) produced no
    measurable change in off-track time, marshal count, or scored distance
    against either baseline — see `docs/lab_notebook.md`'s 2026-09-01 entry.
-   Read as evidence that **training budget (§below) is the current
-   bottleneck, not reward shape** — at ~2,400 gradient updates the policy
-   likely hasn't had enough updates to exploit a reshaped incentive either
-   way. Re-test reward shaping only after scaling up training budget as its
-   own, separately-measured variable.
+   Read at the time as evidence that **training budget (item 0 above) was
+   the bottleneck, not reward shape**. Scaling up training budget (item 0)
+   did subsequently improve off-track fraction, so this reading holds so
+   far, but re-test reward shaping again once item 0's pace question is
+   resolved with a repeated-seed run.
 2. **Robustness across seeds** — widen the training seed distribution
    (rather than a fixed handful) so the policy doesn't overfit to specific
    spawn points; evaluate on held-out seeds never used in training.
