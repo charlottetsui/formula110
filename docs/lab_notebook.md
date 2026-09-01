@@ -1052,3 +1052,93 @@ wrong with the reward that seed 110 happened not to expose yet."
    alone has now made four attempts (idle, terminal-penalty-only, speed
    cap, terminal+wall-avoidance) without controlling top speed on seed
    909.
+
+---
+
+## 2026-09-01 (continued, 9)
+
+**Participants and contributions:** Charlotte Tsui — directed running the
+recommended seed-110 experiment. Claude Code (AI agent) — ran it (moved
+to background after exceeding the 120s foreground timeout, picked back up
+via the completion notification), found a materially more encouraging
+result than any seed-909 test today, and verified it carefully rather
+than taking the first big number at face value.
+
+**Question or objective:** Does the current reward (idle penalty,
+`WEIGHT_TERMINAL_PENALTY = 100.0`, speed cap, wall-avoidance changes) help,
+hurt, or not matter on seed 110 -- the only checkpoint so far with zero
+eliminations -- distinguishing "seed 909 is stuck" from "the reward
+doesn't really work"?
+
+**What we investigated or changed:** Trained seed `110` from scratch
+(`scripts/train_sac.py --races 10 --round-seconds 120 --buffer-capacity
+200000 --eval-round-seconds 120 --seed 110`), same config as every
+seed-909 test today, with today's fully revised reward. The run took
+88.6s training + evaluation (longer than prior runs -- 117,542 transitions
+vs. ~72-86k before, since this policy survives longer per race and
+therefore generates more ticks), exceeding the 120s foreground command
+timeout; it was moved to a background task and picked up via the
+completion notification rather than polled for.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output.
+- AI-agent assistance: Claude Code did not stop at the headline
+  scored-distance numbers (up to 3069.9m in one race) -- given today's
+  repeated lesson about big totals hiding elimination, it immediately
+  pulled per-race damage/lap/max-speed detail before characterizing the
+  result, and reported both the genuine improvement (speed, lap
+  completion, beating the strong baseline) and the still-open problem
+  (40% elimination) rather than leading with only the positive framing.
+- Commits or code: `docs/rl_design.md` §6 (causal test 7).
+- Experiment output: `experiments/2026-09-01_full-reward-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** A materially different outcome from every seed-909
+test today. Per-race: 4 of 10 races vs. `crash_fast` completed 8-9 laps
+with best lap times of 15.8-22.3s (~9-11.6 m/s average pace, right around
+`MAX_REWARDED_SPEED_MPS = 10.0` -- exactly what the reward is supposed to
+encourage) and max speeds of 25-30 m/s; the other 6 ended in full
+elimination, some after productive laps (3-4 laps then a crash), some
+almost immediately (near-zero off-track/wall-contact time, a fast direct
+crash). Aggregate max speed 30.2 m/s -- notably lower than every seed-909
+checkpoint today (38-47 m/s), suggesting the wall-avoidance/terminal-
+penalty changes did have a real effect here. Against
+`default_student_controller` (~5 m/s sustained, previously undefeated):
+**6/10 race wins -- the first time any SAC checkpoint has beaten this
+baseline at all.**
+
+This is a genuinely different result from three consecutive seed-909
+tests that stayed pinned at ~90-100% elimination and 38-40 m/s regardless
+of reward changes. The same reward, starting from a different seed,
+produces real competitive speed. This supports last entry's hypothesis
+that seed 909 was stuck in a resistant local optimum specific to its own
+training trajectory, not that the reward doesn't work.
+
+**Decision and rationale:** This is the most interesting checkpoint from
+today, but not an unambiguous "best" -- it trades reliability for speed
+against the original `2026-09-01_scaled-training-budget` (seed 110, old
+reward: 0/10 eliminated, ~6.9 m/s). Average distance over many races
+heavily favors the new one (835-842m vs. 100.7m, even counting the
+crashes); guaranteed survival favors the old one. Given the course
+rubric's emphasis on reliability "across random starting-point seeds," a
+~40% elimination rate is not acceptable to submit as-is, but this is real
+progress -- the problem has shifted from "no speed, no wall-avoidance" to
+"inconsistent," which is a different and more tractable problem.
+
+**Next steps:**
+1. Investigate what distinguishes the crash races (immediate deaths like
+   seed 7 race 1, seed 8675309 both races) from the success races --
+   e.g. whether a specific spawn point or early-track feature is harder
+   to handle.
+2. More training (more races/updates) on this same reward+seed
+   combination to see if reliability improves with more gradient steps.
+3. Run the same full reward on 2-3 more seeds to check whether this
+   speed-with-partial-reliability pattern generalizes or was specific to
+   how well seed 110 responded.
+4. Small seed sweep at the current reward, still open from earlier
+   entries.
+5. Hard action/speed cap at the controller level, still open, though less
+   urgent now that the reward changes have shown they *can* work well
+   starting from the right conditions.

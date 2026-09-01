@@ -365,14 +365,37 @@ primary approach, roughly in order of expected leverage:
    to one seed's particular stuck optimum. **Proposed next step: test the
    current, now substantially revised reward on seed 110** (the only
    checkpoint so far with zero eliminations) to see whether today's
-   changes help, hurt, or don't matter there — not yet run.
+   changes help, hurt, or don't matter there.
 
-   Paused this causal-test chain here (seven experiments deep, two
-   hypotheses rejected outright, three reward attempts with no effect on
-   top speed) to get direction — see `docs/lab_notebook.md`'s 2026-09-01
-   entry for the options. **Best checkpoint from today remains the
-   original `2026-09-01_scaled-training-budget` (seed 110): 0/10
-   eliminations, ~6.9 m/s max speed, 10/10 wins vs. `crash_fast`.**
+   **Causal test 7 (run) — a materially different, more encouraging
+   result:** trained seed `110` from scratch with the full current reward
+   (idle penalty, `WEIGHT_TERMINAL_PENALTY = 100.0`, speed cap, wall-
+   avoidance changes), same 120s-round config as the seed-909 tests. Not a
+   repeat of seed 909's near-total failure: best lap times of 15.8-22.3s
+   (~9-11.6 m/s average pace, right around `MAX_REWARDED_SPEED_MPS`), 8-9
+   laps completed in successful races, max speed down to 25-35 m/s (vs.
+   38-47 m/s on every seed-909 test today), and **the first-ever win
+   against `default_student_controller`** (6/10 races, avg scored distance
+   841.8m vs. the baseline's own ~600-745m). But reliability is still the
+   open problem: 6/10 races end in full elimination (some after productive
+   laps, some almost immediately). See
+   `experiments/2026-09-01_full-reward-seed110/notes.md`.
+
+   **Read:** the same reward that left seed 909 pinned at ~90-100%
+   elimination across three attempts produces a much better outcome
+   starting from seed 110 — supports the "seed 909 stuck in a resistant
+   local optimum" hypothesis over "the reward doesn't work." The problem
+   has shifted from *no speed / no wall-avoidance at all* to
+   *inconsistent — crashes in ~40% of races*, which is a different (and
+   more tractable) problem than where this causal-test chain started.
+
+   Paused here (seven experiments deep) — see `docs/lab_notebook.md`'s
+   2026-09-01 entry for next-step options. **Best/most interesting
+   checkpoints from today, for different criteria:**
+   `2026-09-01_scaled-training-budget` (seed 110, original reward): 0/10
+   eliminations, ~6.9 m/s, most *reliable*. `2026-09-01_full-reward-
+   seed110` (this test): 6/10 eliminations, ~30 m/s, 8-9 laps and beats
+   the strong baseline when it survives — much faster but less reliable.
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the
