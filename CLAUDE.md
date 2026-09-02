@@ -96,6 +96,13 @@ its output zip after running it instead):
    ready — confirm all three root files are present alongside
    `controllers/`.
 
+As a single command (adjust `controller_module` if submitting a different
+module than `controllers.race_faster`):
+
+```bash
+uv run python scripts/export_student_controllers.py --all-controllers && printf '{\n  "schema_version": 1,\n  "controller_module": "controllers.race_faster"\n}\n' > artifacts/formula110-submission.json && zip -j artifacts/formula110-student-controllers.zip artifacts/formula110-submission.json pyproject.toml uv.lock
+```
+
 ## Explicit steps to follow every session
 
 1. **Orient before acting.** Read `docs/rl_design.md` and the last 1–2

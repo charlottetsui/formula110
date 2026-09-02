@@ -91,6 +91,23 @@ WEIGHT_TERMINAL_PENALTY = 100.0
 # below the 15-40+ m/s regime seen in every crash-every-race checkpoint.
 # See docs/lab_notebook.md's 2026-09-01 entry and
 # experiments/2026-09-01_stochastic-vs-deterministic-diagnosis/notes.md.
+#
+# Tried raising 10.0 -> 20.0 (2026-09-01) to credit the
+# `2026-09-01_more-training2-seed110` checkpoint's already-observed
+# 15.4-16.1 m/s max speed (which exceeded the old cap even though average
+# lap pace, ~6.8-7.7 m/s, stayed well under it). Reverted: trained from
+# scratch at cap=20.0 with everything else unchanged, and got a clear
+# regression, not a faster-and-still-safe controller -- max speed roughly
+# doubled (34-38 m/s) but laps completed dropped (4.1 avg -> 0-2), lap
+# times got *slower* despite the higher top speed (21-28s -> 36-96s),
+# damage came back (0.000 -> 0.14-0.66), and marshal recoveries spiked to
+# as high as 21/race (from ~0). Doubling the cap shifted the reward's
+# relative balance too far toward raw speed at the expense of cornering
+# control -- the cap was never blocking top speed, so raising it just
+# reopened the same speed-vs-control trade-off seen in the seed-909 causal
+# chain earlier today, from a different starting point. See
+# docs/lab_notebook.md's 2026-09-01 entry and
+# experiments/2026-09-01_speedcap20-seed110/notes.md.
 MAX_REWARDED_SPEED_MPS = 10.0
 
 # WALL_WARNING_DISTANCE_M raised 3.0 -> 6.0 and WEIGHT_WALL_PROXIMITY raised

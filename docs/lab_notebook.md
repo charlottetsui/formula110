@@ -1516,3 +1516,92 @@ or something else) rather than deciding for her.
    `autograder/README.md`.
 4. Still open: broader seed testing, live qualitative watch, further
    training-budget scaling if desired.
+
+---
+
+## 2026-09-01 (continued, 14)
+
+**Participants and contributions:** Charlotte Tsui -- asked to optimize
+for speed specifically (higher throttle/speed while staying safe and
+completing laps), given how safe the races=40 checkpoint already was.
+Claude Code (AI agent) -- implemented the most direct lever (raise the
+reward's speed cap), tested it, found a clear regression, and reverted
+rather than presenting a worse checkpoint as progress.
+
+**Question or objective:** The current best checkpoint
+(`2026-09-01_more-training2-seed110`) is very safe (zero incidents) but
+only reaches ~15.5 m/s average max speed and ~6.8-7.7 m/s average lap
+pace. How can the controller run faster while staying safe and still
+completing laps?
+
+**What we investigated or changed:** Noted that `MAX_REWARDED_SPEED_MPS`
+(10.0) was already being exceeded by the reference checkpoint's actual
+max speed (15.4-16.1 m/s) while its average lap pace stayed well under
+even 10.0 -- meaning the cap wasn't blocking top speed, just not
+crediting the policy for holding higher speed longer. Raised it to 20.0
+in `src/training/reward.py`, leaving every safety-side weight
+(`WEIGHT_DAMAGE`, `WEIGHT_WALL_PROXIMITY`, `WALL_WARNING_DISTANCE_M`,
+`WEIGHT_TERMINAL_PENALTY`, `WEIGHT_CONTACT`) untouched, and trained from
+scratch with the same seed (110), races=40, and round_seconds=120 as the
+reference, for direct comparison.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output and the
+  reference checkpoint's known numbers.
+- AI-agent assistance: Claude Code did not report the higher top-speed
+  number as success -- pulled full per-race detail (laps, lap times,
+  damage, marshal counts) before characterizing the result, the same
+  discipline applied to every big-number claim today, and it's what
+  caught that lap times got *slower* despite higher top speed. Reverted
+  the change immediately once the regression was clear rather than
+  leaving a worse value in place for discussion. Ran
+  `ruff`/`pyright`/`pytest -q` (146 passed) both before running the
+  experiment and after reverting.
+- Commits or code: `src/training/reward.py` (`MAX_REWARDED_SPEED_MPS`
+  tried at 20.0, reverted to 10.0), `docs/rl_design.md` §6 (causal test
+  10).
+- Experiment output: `experiments/2026-09-01_speedcap20-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** A clear regression, not an improvement. Max speed
+roughly doubled (34.4-37.7 m/s), but laps completed dropped from an
+average of 4.1 to 0-2 per race, best lap times got *slower* despite the
+higher top speed (21.2-27.9s -> 36.3-95.9s), damage returned (0.000 ->
+0.14-0.66, though no full eliminations in this sample), low-progress time
+spiked to 10-48% of the race, and marshal recoveries reached as high as
+21 in a single race (from ~0). It lost 5 of 10 races against
+`default_student_controller` -- the first losses against that baseline
+since the races=40 breakthrough (previously 10/10).
+
+Best explanation: the cap was never limiting top speed (already exceeded
+it), so raising it didn't unlock more speed -- it doubled the maximum
+achievable per-tick progress reward while every control/safety term
+stayed the same absolute size, shifting the reward's relative balance
+toward raw speed at the expense of cornering control. This reopened the
+same speed-vs-control trade-off from the seed-909 causal chain earlier
+today, just triggered from a different (previously good) starting point.
+
+**Decision and rationale:** Reverted `MAX_REWARDED_SPEED_MPS` to `10.0`.
+The evidence was unambiguous enough not to need a second confirming run --
+regression on nearly every metric, not a borderline or mixed result.
+`2026-09-01_more-training2-seed110` remains the current best checkpoint.
+Reward-magnitude tuning is not the right lever for improving lap times
+from here; the lever that has worked cleanly and repeatedly today is more
+training on the existing, already-productive reward (causal tests 8-9).
+
+**Next steps:**
+1. **(recommended)** Pursue speed via more training on the unchanged
+   (cap=10.0) reward, continuing the races=10→20→40 trend rather than
+   reshaping the reward again -- lap times/consistency may keep improving
+   the same way damage/off-track/wall-contact did.
+2. If reward-side speed tuning is revisited later, use a much smaller
+   step (e.g. 10.0 -> 12.0) and compare directly against the races=40
+   reference rather than training from scratch.
+3. Consider the standing refinement-plan item on reducing hesitation
+   (penalizing oscillating steering) as a more targeted lap-time lever.
+4. Note for anyone watching live: `controllers.sac_candidate` auto-
+   selects the newest checkpoint by file time, which is now the regressed
+   speedcap20 run -- use `FORMULA110_SAC_CHECKPOINT` to point at
+   `2026-09-01_more-training2-seed110` explicitly.
