@@ -488,15 +488,38 @@ primary approach, roughly in order of expected leverage:
    goal specifically (races=80 is arguably safer/more consistent, but
    that's not what's being optimized for).
 
-   Paused here (eleven experiments deep) — see `docs/lab_notebook.md`'s
-   2026-09-01 entry for next-step options. **Current best checkpoint for
+   **Causal test 12 (run, 2026-09-02) — small cap increase, no
+   improvement:** tried `MAX_REWARDED_SPEED_MPS` 10.0 → 12.0 (a
+   deliberately small, 20% step vs. the previous 2x jump), same seed
+   (110), races=40, round length as the reference, trained from scratch.
+   Result: essentially a tie on safety (still 0.000 damage, 0.00s
+   off-track/wall-contact, 20/20 wins) and slightly *more* consistent lap
+   completion (4 laps in every race vs. the reference's mix of 4-5), but
+   average best-lap time was **slower**, not faster (24.76s → 28.20s), and
+   max speed was not meaningfully different (15.53 → 15.88 m/s). See
+   `experiments/2026-09-02_speedcap12-seed110/notes.md`.
+
+   **Read:** three points on the `MAX_REWARDED_SPEED_MPS` axis have now
+   been tried from this seed/config — 10.0 (reference, still the best),
+   12.0 (this test, a tie or mild regression on lap time), 20.0
+   (2026-09-01, a severe regression). None beat the original 10.0.
+   Reverted back to `10.0`. Treating `MAX_REWARDED_SPEED_MPS` tuning as a
+   dead end for the speed goal rather than continuing to search this
+   axis — the lever that has actually worked today is training budget
+   (causal tests 7-8), and the lever most likely to help further is a
+   different one entirely (reducing hesitation/oscillation, or
+   fine-tuning from an existing checkpoint rather than retraining from
+   scratch each time, which `scripts/train_sac.py` doesn't yet support).
+
+   Paused here (twelve experiments deep) — see `docs/lab_notebook.md`'s
+   2026-09-02 entry for next-step options. **Current best checkpoint for
    speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
    eliminations, zero damage/off-track/wall-contact in every evaluated
    race, ~15.5 m/s max speed, 4-5 laps and 20/20 race wins across both
    training and held-out seeds. (Note: `controllers.sac_candidate`
-   auto-selects the *newest* checkpoint by file time, which after this
-   entry is the races=80 one — point `FORMULA110_SAC_CHECKPOINT` at
-   `2026-09-01_more-training2-seed110` explicitly if watching it live.)
+   auto-selects the *newest* checkpoint by file time — point
+   `FORMULA110_SAC_CHECKPOINT` at `2026-09-01_more-training2-seed110`
+   explicitly if watching it live.)
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the

@@ -1,0 +1,19 @@
+races: 40
+round_seconds: 120.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 800000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-02_speedcap12-seed110
+git_commit: 767d958e1c11b59f736f8471b5f396029f1b12be
+training_seconds: 207.44
+transitions_collected: 251900
+gradient_updates: 62726
+observation_dim: 17
+action_dim: 2

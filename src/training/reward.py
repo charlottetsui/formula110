@@ -108,6 +108,20 @@ WEIGHT_TERMINAL_PENALTY = 100.0
 # chain earlier today, from a different starting point. See
 # docs/lab_notebook.md's 2026-09-01 entry and
 # experiments/2026-09-01_speedcap20-seed110/notes.md.
+#
+# A separate experiment training further at cap=10.0 (races=40 -> 80, same
+# day) showed the reward has no incentive to exceed the cap at all -- more
+# training converged speed *down* toward ~13-15 m/s (from races=40's
+# ~15-16 m/s), not up. Tried a small step, 10.0 -> 12.0 (2026-09-02, 20%
+# increase, still below races=40's own observed peak ~16 m/s): reverted
+# again -- essentially a tie with the cap=10.0 reference on safety/laps,
+# but average best-lap time was *slower* (24.76s -> 28.20s), not faster.
+# Three points on this axis (10.0, 12.0, 20.0) have now been tried from
+# this seed/config; none beat the original 10.0. Treating
+# MAX_REWARDED_SPEED_MPS tuning as exhausted for the speed goal rather
+# than continuing to search this axis. See docs/lab_notebook.md's
+# 2026-09-02 entry and
+# experiments/2026-09-02_speedcap12-seed110/notes.md.
 MAX_REWARDED_SPEED_MPS = 10.0
 
 # WALL_WARNING_DISTANCE_M raised 3.0 -> 6.0 and WEIGHT_WALL_PROXIMITY raised

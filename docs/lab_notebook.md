@@ -1677,3 +1677,81 @@ rather than either extreme already tried.
    newest by file time) -- still point `FORMULA110_SAC_CHECKPOINT` at
    `2026-09-01_more-training2-seed110` for the best speed+safety
    checkpoint.
+
+---
+
+## 2026-09-02
+
+**Participants and contributions:** Charlotte Tsui -- directed a smaller,
+more careful speed-cap increase (10.0 -> 12.0 or 13.0) as a direct
+comparison against the races=40 reference. Claude Code (AI agent) --
+implemented it, ran the comparison, and found a third consecutive null
+result on this specific lever.
+
+**Question or objective:** Does a small (rather than doubled) increase to
+`MAX_REWARDED_SPEED_MPS` improve lap times over the races=40 reference
+without reopening the speed-vs-control trade-off that a full doubling
+caused?
+
+**What we investigated or changed:** `src/training/reward.py`:
+`MAX_REWARDED_SPEED_MPS` 10.0 -> 12.0 (a 20% step, chosen to stay below
+the reference checkpoint's own observed peak speed, ~16 m/s, rather than
+the 2x jump tried on 2026-09-01). Retrained from scratch with the exact
+same seed (110), races=40, round_seconds=120, buffer_capacity=800000, and
+eval_round_seconds=120 as the reference, for a clean, direct comparison.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's output and the
+  reference checkpoint's known numbers.
+- AI-agent assistance: Claude Code computed exact averages (best lap
+  time, max speed, raw distance) for both this run and the reference
+  before characterizing the result, rather than eyeballing the printed
+  totals -- the same discipline applied throughout yesterday's session.
+  Ran `ruff`/`pyright`/`pytest -q` (146 passed) before and after the
+  reward change.
+- Commits or code: `src/training/reward.py` (`MAX_REWARDED_SPEED_MPS`
+  tried at 12.0, reverted to 10.0), `docs/rl_design.md` §6 (causal test
+  12).
+- Experiment output: `experiments/2026-09-02_speedcap12-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** Essentially a tie with the reference, not an
+improvement. Safety identical (0.000 damage, 0.00s off-track/wall-contact,
+20/20 wins, unchanged). Lap completion slightly *more* consistent (4 laps
+in literally every one of 20 races, vs. the reference's mix of 4s and 5s).
+But average best-lap time was **slower** (24.76s -> 28.20s), and average
+max speed was not meaningfully different (15.53 -> 15.88 m/s, ~2%). This
+is the third point tried on the `MAX_REWARDED_SPEED_MPS` axis (10.0
+reference, 12.0 this entry, 20.0 on 2026-09-01) and the third to not beat
+the original 10.0 value -- the middling attempt landed closer to a tie
+than the extreme attempt's clear regression, but neither improved on the
+baseline.
+
+**Decision and rationale:** Reverted `MAX_REWARDED_SPEED_MPS` to `10.0`.
+Treating this constant as exhausted as a lever for the stated speed goal
+-- three attempts across a 2x range (10, 12, 20) produced one reference
+result and two non-improvements, which is enough evidence to stop
+searching this specific axis rather than trying more intermediate values.
+`2026-09-01_more-training2-seed110` (races=40, cap=10.0) remains the best
+checkpoint for speed+safety.
+
+**Next steps:**
+1. Treat `MAX_REWARDED_SPEED_MPS` tuning as a dead end for now; if
+   further speed gains are wanted, pursue a different lever -- the
+   standing "reduce hesitation" (oscillating steering) refinement item,
+   or adding a `--resume-from` option to `scripts/train_sac.py` so
+   training can fine-tune from the races=40 checkpoint instead of
+   restarting from scratch each time.
+2. Alternatively, treat races=40 as a strong enough result on speed for
+   now and shift focus to other open items: broader seed testing beyond
+   the fixed 5, repackaging `controllers.race_faster` from the current
+   best checkpoint (still packages races=20, not races=40, per the
+   2026-09-01 packaging entries), or the `controllers.minimum_viable`
+   module gap noted in those same entries.
+3. If `MAX_REWARDED_SPEED_MPS` tuning is revisited anyway, note that each
+   attempt so far is n=1 per value (a fresh from-scratch run) -- repeating
+   a value with a different seed would help separate a genuine causal
+   effect from ordinary run-to-run variance, which hasn't been
+   characterized on this specific axis.
