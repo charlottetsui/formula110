@@ -19,7 +19,7 @@ from training.observation import encode_observation
 from training.replay_buffer import ReplayBuffer
 from training.reward import is_terminal, step_reward
 from training.sac import SACAgent
-from training.trajectory import WEIGHT_TRAJECTORY_BONUS, BestTrajectoryTracker
+from training.trajectory import WEIGHT_TRAJECTORY_BONUS, BestTrajectoryTracker, bonus_from_snapshot
 
 DEFAULT_WARMUP_STEPS = 1_000
 DEFAULT_UPDATE_EVERY_N_STEPS = 4
@@ -87,14 +87,23 @@ class TrainableController:
         self._previous_sensors: RobotSensors | None = None
         self._previous_observation: np.ndarray | None = None
         self._previous_action: np.ndarray | None = None
+        self._trajectory_snapshot: np.ndarray | None = None
 
     def __call__(self, sensors: RobotSensors) -> RobotCommand:
         observation = encode_observation(sensors)
+        if self.training and self._state.trajectory is not None and self._trajectory_snapshot is None:
+            # Taken once, on this episode's first call -- see training.trajectory's module
+            # docstring for why reading a frozen snapshot (not the live, shared tracker) is
+            # required to avoid a same-race rival's mid-episode progress corrupting this bonus.
+            self._trajectory_snapshot = self._state.trajectory.snapshot()
+
         if self.training and self._previous_observation is not None and self._previous_action is not None:
             assert self._previous_sensors is not None
             reward = step_reward(self._previous_sensors, sensors)
             if self._state.trajectory is not None:
-                reward += WEIGHT_TRAJECTORY_BONUS * self._state.trajectory.bonus_m(
+                assert self._trajectory_snapshot is not None
+                reward += WEIGHT_TRAJECTORY_BONUS * bonus_from_snapshot(
+                    self._trajectory_snapshot,
                     previous_tick=self._previous_sensors.tick,
                     previous_distance_m=self._previous_sensors.odometry.distance_m,
                     current_tick=sensors.tick,

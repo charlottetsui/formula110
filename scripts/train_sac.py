@@ -52,6 +52,7 @@ class TrainSacArguments:
     batch_size: int
     hidden_size: int
     trajectory_bonus: bool
+    resume_from: Path | None
     eval_seeds: tuple[int, ...]
     eval_races: int
     eval_round_seconds: float
@@ -74,6 +75,20 @@ def parse_args() -> TrainSacArguments:
         action="store_true",
         help="reward relative to the best-known distance-at-tick seen so far this run (training.trajectory)",
     )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        default=None,
+        metavar="CHECKPOINT",
+        help=(
+            "fine-tune from an existing checkpoint's saved policy/critics/log_alpha "
+            "(a SACAgent.save() file with include_training_state=True) instead of a fresh "
+            "random init -- --hidden-size must match the checkpoint's architecture. The "
+            "replay buffer and critic optimizer momentum are NOT resumed (start empty/fresh), "
+            "and --warmup-steps still defaults to random actions before using the policy -- "
+            "pass --warmup-steps 0 to use the resumed policy's actions from the first tick"
+        ),
+    )
     parser.add_argument("--eval-seeds", type=int, nargs="+", default=list(DEFAULT_EVAL_SEEDS))
     parser.add_argument("--eval-races", type=int, default=2, help="head-to-head races per evaluation seed")
     parser.add_argument("--eval-round-seconds", type=float, default=20.0)
@@ -90,6 +105,7 @@ def parse_args() -> TrainSacArguments:
         batch_size=arguments.batch_size,
         hidden_size=arguments.hidden_size,
         trajectory_bonus=arguments.trajectory_bonus,
+        resume_from=arguments.resume_from,
         eval_seeds=tuple(arguments.eval_seeds),
         eval_races=arguments.eval_races,
         eval_round_seconds=arguments.eval_round_seconds,
@@ -113,6 +129,9 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         action_dim=ACTION_DIM,
         hidden_sizes=(args.hidden_size, args.hidden_size),
     )
+    if args.resume_from is not None:
+        agent.load(args.resume_from)
+        print(f"[train] resumed policy/critics/log_alpha from {args.resume_from}")
     buffer = ReplayBuffer(capacity=args.buffer_capacity, observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM)
     trajectory = BestTrajectoryTracker(max_ticks=int(args.round_seconds * 60) + 1) if args.trajectory_bonus else None
     state = TrainingState(

@@ -577,7 +577,34 @@ primary approach, roughly in order of expected leverage:
    `--trajectory-bonus` defaults to off, so this doesn't affect any
    existing default behavior. Not adopting this checkpoint.
 
-   Paused here (fourteen experiments deep) — see `docs/lab_notebook.md`'s
+   **Causal test 15 (run, 2026-09-02) — bug fixed, still doesn't beat the
+   reference:** decoupled reads from writes in `BestTrajectoryTracker`
+   (`src/training/trajectory.py`): each episode now takes a frozen
+   `snapshot()` at its own first tick and reads bonuses from that
+   snapshot for its whole run, while `update()` still writes to the live
+   tracker for *future* episodes. Re-ran the identical config. **The bug
+   is fixed** — marshal recoveries dropped from 22.25/race back to
+   0.50/race (near the reference's 0.15), off-track/wall-contact time
+   back near zero, self-play's own training distance back to a normal
+   order of magnitude (23,603m/25,141m over 40 races, vs. the buggy run's
+   3.0m/0.0m). **But it still doesn't beat the plain reference**: 2.70
+   avg laps (vs. 4.10), 32.73s avg best lap (vs. 24.76s), 2/20 eliminated
+   (vs. 0/20). Max speed marginally higher (17.33 vs. 15.53 m/s) but
+   doesn't translate to better lap times or reliability. See
+   `experiments/2026-09-02_trajectory-bonus-fixed-seed110/notes.md`.
+
+   **Read:** this is the sixth consecutive reward-tuning/mechanism
+   attempt today that failed to beat races=40, though the first that's a
+   genuine design fix rather than a hyperparameter guess. With n=1 per
+   condition (every experiment today is one from-scratch training run),
+   this can't yet distinguish "the idea doesn't help" from "this run had
+   worse luck than the reference run." Rather than a seventh from-scratch
+   attempt, shifting to a genuinely different mechanism: `--resume-from`
+   (added to `scripts/train_sac.py` this session) to continue training
+   the already-good races=40 policy directly, instead of re-deriving a
+   new one from random init under each reward variant.
+
+   Paused here (fifteen experiments deep) — see `docs/lab_notebook.md`'s
    2026-09-02 entry for next-step options. **Current best checkpoint for
    speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
    eliminations, zero damage/off-track/wall-contact in every evaluated

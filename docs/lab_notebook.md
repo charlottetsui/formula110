@@ -1952,3 +1952,116 @@ all. Worth fixing and retrying, not abandoning.
    deprioritize below the `--resume-from` checkpoint-continuation idea or
    simply treating races=40 as the practical best result for the
    remaining project time.
+
+---
+
+## 2026-09-02 (continued, 3)
+
+**Participants and contributions:** Charlotte Tsui -- directed "proceed
+with 1 [fix the trajectory bug and retest] then continue with 2
+[--resume-from / other work]." Claude Code (AI agent) -- fixed the bug,
+verified the fix worked, found the fixed mechanism still didn't beat the
+reference, then built and started testing `--resume-from` as the
+genuinely different next lever.
+
+**Question or objective:** Fix the same-tick, same-race cross-copy bug in
+`BestTrajectoryTracker` found last entry, confirm the fix actually
+resolves the instability, and add checkpoint-resume support to
+`scripts/train_sac.py` so training can continue from an existing
+checkpoint instead of always starting from a random init.
+
+**What we investigated or changed:**
+
+- **Bug fix** (`src/training/trajectory.py`, `src/training/controller.py`):
+  decoupled reads from writes. `BestTrajectoryTracker.snapshot()` returns
+  a frozen copy of the live record; a new free function
+  `bonus_from_snapshot()` computes the bonus against a passed-in array
+  instead of the live tracker. `TrainableController` now takes a snapshot
+  once, on its own episode's first call (safe because self-play
+  constructs every copy for a race before any of them run a single tick,
+  confirmed by re-reading `_run_headless_student_race` in
+  `head_to_head.py`), and reads bonuses from that frozen snapshot for the
+  whole episode, while still writing live updates to the shared tracker
+  for future episodes. Added 2 regression tests
+  (`tests/test_training_trajectory.py`) specifically encoding the
+  causal-test-14 bug scenario, plus a snapshot-isolation test.
+- **Re-ran the identical `--trajectory-bonus` config** (seed 110,
+  races=40, round_seconds=120, buffer_capacity=800000) to check whether
+  the fix actually resolved the instability, and whether the corrected
+  mechanism beats the plain reference.
+- **Added `--resume-from`** to `scripts/train_sac.py`: loads an existing
+  checkpoint's policy/critics/log_alpha via `SACAgent.load()` (already
+  supported at the agent level, just not exposed on the CLI) instead of
+  constructing a fresh `SACAgent`. Documented in the flag's help text that
+  the replay buffer and critic-optimizer momentum are *not* resumed
+  (start fresh), and that `--warmup-steps 0` is recommended when resuming
+  (otherwise the resumed policy's actions are discarded for the first
+  `--warmup-steps` transitions in favor of random noise). Smoke-tested
+  with a 1-race, 5-second run against the races=40 checkpoint before
+  trusting it for a real experiment.
+- Started a real resume test: `--resume-from` the races=40 checkpoint,
+  `--warmup-steps 0`, otherwise the same races=40/round_seconds=120/seed
+  110 config, plain (non-trajectory) reward -- to isolate whether
+  continuing from a strong prior beats another from-scratch run,
+  independent of the trajectory-bonus question. Still running as this
+  entry is being written.
+
+**Evidence:**
+- Sources or documentation: re-read `_run_headless_student_race` in
+  `src/racing/race/head_to_head.py` to confirm all self-play copies for a
+  race are constructed before any of them are called, which is what makes
+  first-call snapshotting safe.
+- AI-agent assistance: Claude Code wrote the two new tests to directly
+  encode the exact bug scenario from the previous entry (same-tick,
+  same-race rival corruption) as a regression test, not just generic
+  coverage -- so a future change that reintroduces this specific bug
+  would be caught. Smoke-tested `--resume-from` with a fast, cheap run
+  before committing to a full 40-race experiment. Ran
+  `ruff`/`pyright`/`pytest -q` (158 passed) before running anything.
+- Commits or code: `src/training/trajectory.py` (snapshot mechanism),
+  `src/training/controller.py` (snapshot wiring),
+  `tests/test_training_trajectory.py` (2 new tests),
+  `scripts/train_sac.py` (`--resume-from` flag), `docs/rl_design.md` §6
+  (causal test 15).
+- Experiment output:
+  `experiments/2026-09-02_trajectory-bonus-fixed-seed110/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`); `experiments/2026-09-02_resumed-more-training-seed110/`
+  in progress.
+- Leaderboard result: n/a.
+
+**What we observed:** The fix worked. Marshal recoveries dropped from
+22.25/race (the bug) back to 0.50/race (near the reference's 0.15),
+off-track/wall-contact time back near zero, self-play's own training
+distance back to a normal order of magnitude (23,603m/25,141m over 40
+races, vs. the bug's 3.0m/0.0m). This is no longer unstable, broken
+training.
+
+But the corrected mechanism still didn't beat the plain races=40
+reference: 2.70 avg laps (vs. 4.10), 32.73s avg best lap (vs. 24.76s),
+2/20 eliminated (vs. 0/20). Max speed was marginally higher (17.33 vs.
+15.53 m/s) but didn't translate into better lap times or reliability.
+This is the sixth consecutive reward-tuning/mechanism attempt today to
+fail against races=40, though the first that's a genuine design bug fix
+rather than a hyperparameter guess -- and with n=1 per condition (every
+experiment today is a single from-scratch run), it's not yet possible to
+separate "the idea doesn't help here" from "this particular run had worse
+luck than the reference run did."
+
+**Decision and rationale:** Keep the trajectory-bonus fix (correct,
+tested, default-off, no impact on existing behavior). Not adopting the
+trajectory-bonus checkpoint. Given six straight from-scratch attempts
+haven't beaten races=40, shifted the next experiment to a genuinely
+different mechanism -- `--resume-from` -- rather than a seventh reward
+variant trained from scratch.
+
+**Next steps:**
+1. Finish and evaluate the in-progress `--resume-from` test.
+2. If continuing from the strong prior helps, consider a follow-up
+   combining `--resume-from` with `--trajectory-bonus` -- refining an
+   already-competent policy with the bonus, rather than learning both
+   "how to drive" and "beat your own record" from scratch at once.
+3. Otherwise, treat races=40 as the practical best result for this
+   project's remaining time and shift focus to other open items: broader
+   seed testing, repackaging `controllers.race_faster`, or the
+   `controllers.minimum_viable` module gap.
