@@ -33,6 +33,7 @@ from training.evaluation import evaluate_against_baselines, role_distance_m
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
+from training.trajectory import BestTrajectoryTracker
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EVAL_SEEDS: tuple[int, ...] = (110, 42, 7, 2024, 8675309)
@@ -50,6 +51,7 @@ class TrainSacArguments:
     update_every_n_steps: int
     batch_size: int
     hidden_size: int
+    trajectory_bonus: bool
     eval_seeds: tuple[int, ...]
     eval_races: int
     eval_round_seconds: float
@@ -67,6 +69,11 @@ def parse_args() -> TrainSacArguments:
     parser.add_argument("--update-every-n-steps", type=int, default=DEFAULT_UPDATE_EVERY_N_STEPS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument(
+        "--trajectory-bonus",
+        action="store_true",
+        help="reward relative to the best-known distance-at-tick seen so far this run (training.trajectory)",
+    )
     parser.add_argument("--eval-seeds", type=int, nargs="+", default=list(DEFAULT_EVAL_SEEDS))
     parser.add_argument("--eval-races", type=int, default=2, help="head-to-head races per evaluation seed")
     parser.add_argument("--eval-round-seconds", type=float, default=20.0)
@@ -82,6 +89,7 @@ def parse_args() -> TrainSacArguments:
         update_every_n_steps=arguments.update_every_n_steps,
         batch_size=arguments.batch_size,
         hidden_size=arguments.hidden_size,
+        trajectory_bonus=arguments.trajectory_bonus,
         eval_seeds=tuple(arguments.eval_seeds),
         eval_races=arguments.eval_races,
         eval_round_seconds=arguments.eval_round_seconds,
@@ -106,6 +114,7 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         hidden_sizes=(args.hidden_size, args.hidden_size),
     )
     buffer = ReplayBuffer(capacity=args.buffer_capacity, observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM)
+    trajectory = BestTrajectoryTracker(max_ticks=int(args.round_seconds * 60) + 1) if args.trajectory_bonus else None
     state = TrainingState(
         agent=agent,
         buffer=buffer,
@@ -113,6 +122,7 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         warmup_steps=args.warmup_steps,
         update_every_n_steps=args.update_every_n_steps,
         batch_size=args.batch_size,
+        trajectory=trajectory,
     )
     challenger = TrainableController(state=state, training=True)
     incumbent = TrainableController(state=state, training=True)

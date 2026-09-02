@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from racing.student.api import CameraSensors, ContactSensors, OdometrySensors, RobotSensors
 from training.controller import TrainableController, TrainingState
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
+from training.trajectory import BestTrajectoryTracker
 
 
 def _training_state(*, warmup_steps: int = 5, update_every_n_steps: int = 2, batch_size: int = 4) -> TrainingState:
@@ -20,11 +22,11 @@ def _training_state(*, warmup_steps: int = 5, update_every_n_steps: int = 2, bat
     )
 
 
-def _sensors(*, tick: int, damage: float = 0.0) -> RobotSensors:
+def _sensors(*, tick: int, damage: float = 0.0, distance_m: float = 0.0) -> RobotSensors:
     return RobotSensors(
         dt_s=1 / 60,
         tick=tick,
-        odometry=OdometrySensors(speed_mps=2.0),
+        odometry=OdometrySensors(speed_mps=2.0, distance_m=distance_m),
         camera=CameraSensors(center_offset_m=0.1, heading_error_degrees=1.0),
         contact=ContactSensors(damage=damage),
     )
@@ -122,6 +124,41 @@ def test_copy_for_car_preserves_the_deterministic_override() -> None:
     second = copy(same_sensors)
 
     assert (first.throttle, first.steer) != (second.throttle, second.steer)
+
+
+def test_trajectory_bonus_is_added_to_the_pushed_reward_when_present() -> None:
+    without_tracker = _training_state()
+    with_tracker = _training_state()
+    with_tracker.trajectory = BestTrajectoryTracker(max_ticks=100)
+    with_tracker.trajectory.update(tick=0, distance_m=0.0)
+    with_tracker.trajectory.update(tick=1, distance_m=1.0)  # best-known pace: 1.0m gained by tick 1
+
+    controller_without = TrainableController(state=without_tracker, training=True)
+    controller_without(_sensors(tick=0, distance_m=0.0))
+    controller_without(_sensors(tick=1, distance_m=2.0))  # gains 2.0m -- ahead of the 1.0m record
+
+    controller_with = TrainableController(state=with_tracker, training=True)
+    controller_with(_sensors(tick=0, distance_m=0.0))
+    controller_with(_sensors(tick=1, distance_m=2.0))
+
+    reward_without = without_tracker.buffer.sample(1, rng=np.random.default_rng(0)).rewards[0]
+    reward_with = with_tracker.buffer.sample(1, rng=np.random.default_rng(0)).rewards[0]
+
+    # gained 2.0m vs. a 1.0m record -> +1.0m bonus at WEIGHT_TRAJECTORY_BONUS=1.0
+    assert reward_with == pytest.approx(reward_without + 1.0, abs=1e-4)
+
+
+def test_trajectory_tracker_is_updated_from_controller_calls() -> None:
+    state = _training_state()
+    state.trajectory = BestTrajectoryTracker(max_ticks=100)
+    controller = TrainableController(state=state, training=True)
+
+    controller(_sensors(tick=0, distance_m=0.0))
+    controller(_sensors(tick=1, distance_m=3.0))
+
+    # a later, slower run at the same tick should now see a positive record to chase
+    bonus = state.trajectory.bonus_m(previous_tick=0, previous_distance_m=0.0, current_tick=1, current_distance_m=1.0)
+    assert bonus == pytest.approx(1.0 - 3.0)
 
 
 def test_warmup_actions_are_random_until_buffer_reaches_warmup_steps() -> None:

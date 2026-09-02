@@ -540,7 +540,44 @@ primary approach, roughly in order of expected leverage:
    scratch) or the team decides the current speed is good enough and
    shifts focus elsewhere.
 
-   Paused here (thirteen experiments deep) — see `docs/lab_notebook.md`'s
+   **Causal test 14 (run, 2026-09-02) — a new mechanism, and its worst
+   outcome yet:** rather than another global-constant tweak, added
+   `src/training/trajectory.py` (`BestTrajectoryTracker`): reward relative
+   to the best-known distance-at-tick the shared training run has ever
+   reached, a location/time-specific "beat your own record" curriculum
+   instead of a fixed constant applied everywhere. Wired in via a new,
+   default-off `--trajectory-bonus` flag on `scripts/train_sac.py`. Same
+   seed/races=40/round-length as the reference. **Result: the worst
+   outcome of the day** — self-play's own training distance collapsed to
+   3.0m/0.0m over 40 whole races (every prior run: hundreds to tens of
+   thousands of meters), 0 laps completed in all 20 evaluation races,
+   marshal recoveries up to 56/race (previous worst: 21), up to 93% of a
+   race spent stuck. Unlike every prior regression today (each a
+   coherent single strategy — uniformly faster-and-crashier or uniformly
+   slower-and-cautious), this was incoherent, unstable training. See
+   `experiments/2026-09-02_trajectory-bonus-seed110/notes.md`.
+
+   **Root cause found, not just observed:** self-play runs two copies of
+   the same policy in one race, controlled sequentially within each
+   physics tick (`_run_headless_student_runtime_step` in
+   `src/racing/race/head_to_head.py`), sharing one
+   `BestTrajectoryTracker`. Whichever copy is processed first in a tick
+   writes that tick's "record" *before* the second copy's bonus is
+   computed from it — so a copy gets compared against a "best" its own
+   rival just set in the *same race, same instant*, not a genuinely
+   separate historical best. Since one grid position starts ahead of the
+   other, this is a systematic, adversarial corruption between the two
+   self-play copies, not the intended self-improving curriculum. A real
+   design bug in the tracker's update timing, not a bad weight — the
+   underlying idea (reward relative to your own best pace) remains
+   well-motivated and worth revisiting once the timing issue is fixed
+   (e.g. only write records from fully-completed episodes, not
+   continuously while other copies are still racing and reading them).
+
+   `--trajectory-bonus` defaults to off, so this doesn't affect any
+   existing default behavior. Not adopting this checkpoint.
+
+   Paused here (fourteen experiments deep) — see `docs/lab_notebook.md`'s
    2026-09-02 entry for next-step options. **Current best checkpoint for
    speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
    eliminations, zero damage/off-track/wall-contact in every evaluated

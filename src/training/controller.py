@@ -19,6 +19,7 @@ from training.observation import encode_observation
 from training.replay_buffer import ReplayBuffer
 from training.reward import is_terminal, step_reward
 from training.sac import SACAgent
+from training.trajectory import WEIGHT_TRAJECTORY_BONUS, BestTrajectoryTracker
 
 DEFAULT_WARMUP_STEPS = 1_000
 DEFAULT_UPDATE_EVERY_N_STEPS = 4
@@ -35,6 +36,7 @@ class TrainingState:
     warmup_steps: int = DEFAULT_WARMUP_STEPS
     update_every_n_steps: int = DEFAULT_UPDATE_EVERY_N_STEPS
     batch_size: int = DEFAULT_BATCH_SIZE
+    trajectory: BestTrajectoryTracker | None = None
     global_step: int = 0
     update_metrics: list[dict[str, float]] = field(default_factory=list)
 
@@ -91,6 +93,14 @@ class TrainableController:
         if self.training and self._previous_observation is not None and self._previous_action is not None:
             assert self._previous_sensors is not None
             reward = step_reward(self._previous_sensors, sensors)
+            if self._state.trajectory is not None:
+                reward += WEIGHT_TRAJECTORY_BONUS * self._state.trajectory.bonus_m(
+                    previous_tick=self._previous_sensors.tick,
+                    previous_distance_m=self._previous_sensors.odometry.distance_m,
+                    current_tick=sensors.tick,
+                    current_distance_m=sensors.odometry.distance_m,
+                )
+                self._state.trajectory.update(tick=sensors.tick, distance_m=sensors.odometry.distance_m)
             self._state.buffer.push(
                 self._previous_observation,
                 self._previous_action,

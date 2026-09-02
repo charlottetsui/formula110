@@ -1844,3 +1844,111 @@ fifth variant.
    focus to other open items: broader seed testing, repackaging
    `controllers.race_faster` from the current best checkpoint (still
    packages races=20), or the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-02 (continued, 2)
+
+**Participants and contributions:** Charlotte Tsui -- asked for the best
+way to continue improving speed/reduce hesitation, and specifically
+proposed tracking the optimal track path per iteration and learning best
+deviations/speeds at different points, iterating toward the most optimal
+path. Claude Code (AI agent) -- validated the idea's reasoning
+(explained why uniform global reward constants can't express "fast here,
+careful there," unlike a position/time-specific signal), designed and
+implemented a "best-known-trajectory" reward bonus, tested it, and found
+a severe regression with a diagnosable root cause rather than just a bad
+outcome.
+
+**Question or objective:** Design and test a location/time-specific
+reward mechanism -- reward relative to the best-known pace ever achieved
+at the same point in an episode -- as a fundamentally different lever
+than the four failed global-constant tweaks from earlier today.
+
+**What we investigated or changed:**
+
+- New module `src/training/trajectory.py`: `BestTrajectoryTracker`,
+  recording the best cumulative `odometry.distance_m` ever reached at
+  each `sensors.tick` across a training run (both reset to 0 per fresh
+  car/episode per SENSORS.md, making them comparable across races/copies
+  without needing the private track-position API). `bonus_m()` returns
+  how much more (or less) distance was gained this tick vs. the
+  best-known run at the same point; `update()` ratchets the record up,
+  never down. `WEIGHT_TRAJECTORY_BONUS = 1.0`, same units/scale as the
+  existing progress reward.
+- `src/training/controller.py`: added `TrainingState.trajectory:
+  BestTrajectoryTracker | None = None` (opt-in) and wired the bonus into
+  `TrainableController.__call__`'s reward computation, gated behind
+  `self.training` like the rest of the training-only logic.
+- `scripts/train_sac.py`: new `--trajectory-bonus` flag (default off, so
+  existing behavior is unaffected unless explicitly requested), sizing
+  the tracker to the configured round length.
+- Added 7 unit tests for the tracker (`tests/test_training_trajectory.py`)
+  and 2 for its controller integration
+  (`tests/test_training_controller.py`) -- caught and fixed an arithmetic
+  mistake in a self-written clamping test before it could hide a real bug.
+- Ran with `--trajectory-bonus`, otherwise identical to the races=40
+  reference (seed 110, races=40, round_seconds=120, buffer_capacity=800000).
+
+**Evidence:**
+- Sources or documentation: read `_run_headless_student_runtime_step` in
+  `src/racing/race/head_to_head.py` (not previously read this closely) to
+  investigate the regression, which is what surfaced the root cause.
+- AI-agent assistance: Claude Code did not stop at "this failed" --
+  noticed the failure had a *different shape* than every prior regression
+  today (incoherent/unstable rather than one consistent bad strategy),
+  formed a specific hypothesis about shared-state timing within self-play,
+  and verified it by reading the actual tick-loop code before writing up
+  a root cause rather than a guess. Ran
+  `ruff`/`pyright`/`pytest -q` (156 passed) before running the experiment.
+- Commits or code: `src/training/trajectory.py` (new),
+  `src/training/controller.py` (`TrainingState.trajectory` field, bonus
+  wiring), `scripts/train_sac.py` (`--trajectory-bonus` flag),
+  `tests/test_training_trajectory.py` (new, 7 tests),
+  `tests/test_training_controller.py` (2 new tests),
+  `docs/rl_design.md` §6 (causal test 14).
+- Experiment output: `experiments/2026-09-02_trajectory-bonus-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** The worst outcome of the day. Self-play's own
+training distance collapsed to 3.0m/0.0m over 40 whole races (every prior
+run: hundreds to tens of thousands of meters). 0 laps completed in all 20
+evaluation races. Marshal recoveries up to 56 in a single race (previous
+worst across every experiment today: 21). Up to 93% of a race spent
+stuck. Unlike every prior regression today -- each a coherent single
+strategy (uniformly faster-and-crashier, or uniformly
+slower-and-cautious) -- this was genuinely unstable, incoherent training.
+
+Root cause: self-play's two copies (challenger, incumbent) are controlled
+sequentially within each physics tick and share one `TrainingState`,
+including now one `BestTrajectoryTracker`. Whichever copy is processed
+first in a tick writes that tick's "record" *before* the second copy's
+bonus is computed from it -- so a copy can be compared against a "best"
+its own rival just set in the same race, at the same instant, not a
+genuinely separate historical best. Since one grid position starts ahead
+of the other (README), this is a systematic, adversarial corruption
+between the two copies, not the intended self-improving curriculum.
+
+**Decision and rationale:** `--trajectory-bonus` defaults to off, so
+existing default behavior is unaffected. Not adopting this checkpoint.
+The underlying idea remains well-motivated -- the bug is specifically in
+*when* the shared record is written relative to when concurrent copies
+read it mid-race, not in the concept of a best-known-trajectory reward at
+all. Worth fixing and retrying, not abandoning.
+
+**Next steps:**
+1. Fix the tracker's update timing before trying again -- most direct
+   option: only write records from a fully-completed episode (after
+   elimination or round end), using that episode's whole trajectory,
+   rather than updating continuously while other copies are still racing
+   and reading it mid-episode.
+2. Separately worth checking once the primary bug is fixed: whether
+   warmup's random actions (pure noise, the first `--warmup-steps`
+   transitions) can plant spurious early-tick records that later,
+   better-controlled episodes then have to fight against.
+3. If a proper fix is more design work than warranted right now,
+   deprioritize below the `--resume-from` checkpoint-continuation idea or
+   simply treating races=40 as the practical best result for the
+   remaining project time.
