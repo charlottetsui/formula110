@@ -2149,3 +2149,107 @@ to consolidation** rather than an eighth variant.
    "how to drive" and "beat your own record" from scratch at once) was
    never tried -- noted for completeness, but deprioritized given the
    seven-experiment pattern above.
+
+---
+
+## 2026-09-02 (continued, 5)
+
+**Participants and contributions:** Charlotte Tsui -- said the car is
+currently too safe, asked to keep iterating until throttle/speed
+increases, and asked specifically for drift-style cornering around
+curves. Claude Code (AI agent) -- explained why a literal hand-coded
+drift controller is out of scope for this track, designed and ran a
+structural (not incremental) reward change instead, and found the first
+genuine speed increase of the day that didn't cost safety.
+
+**Question or objective:** Increase throttle/speed specifically (the
+races=40 checkpoint was judged too safe/conservative), and explore
+whether drift-style cornering can be encouraged, after seven consecutive
+experiments (2026-09-01/02) failed to beat races=40 via value changes on
+the `MAX_REWARDED_SPEED_MPS` axis or new reward terms.
+
+**What we investigated or changed:** Reframed "implement drifting" for
+what's actually buildable here: not a hand-coded rule-based drift
+controller (which would fight the self-play/SAC architecture and this
+track's scope, and its effectiveness couldn't be verified without first
+testing whether the physics model rewards it at all), but reward
+conditions that let a drift-like technique emerge and be rewarded if it's
+actually faster, without forbidding it outright. Concretely, in
+`src/training/reward.py`:
+
+- Removed `MAX_REWARDED_SPEED_MPS` entirely -- `forward_progress_m` is
+  now the raw, uncapped `odometry.speed_mps` term. Every previous
+  attempt on this axis (values 10.0, 12.0, 20.0) changed a number within
+  a structure that had a hard ceiling; this removes the ceiling itself.
+- Added `WALL_PROXIMITY_SPEED_SCALE_MPS = 10.0`: the existing wall-
+  proximity penalty now scales with current speed (2x its base value at
+  10 m/s, 3x at 20 m/s, ...) instead of being speed-blind, so "close to a
+  wall at 1 m/s" and "close to a wall at 35 m/s" are no longer priced
+  the same -- risk now tracks how dangerous the *current situation*
+  actually is.
+
+Trained from scratch, same seed (110), races=40, round_seconds=120,
+buffer_capacity=800000 as every comparison this week.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's output and the
+  races=40 reference's known numbers.
+- AI-agent assistance: Claude Code was explicit up front about what it
+  would and would not build (no rule-based drift override) before
+  writing any code, rather than either refusing the request or silently
+  reinterpreting it. After the run, computed precise per-metric averages
+  rather than trusting the printed totals -- this run's totals looked
+  like an unambiguous win at first glance (higher summed distance), and
+  the precise averages revealed a more honest, mixed picture (higher
+  speed, but slightly worse lap time/count). Ran `ruff`/`pyright`/
+  `pytest -q` (159 passed, 2 old cap-tests replaced with 3 new ones for
+  the uncapped/speed-scaled behavior) before running the experiment.
+- Commits or code: `src/training/reward.py` (removed
+  `MAX_REWARDED_SPEED_MPS`, added `WALL_PROXIMITY_SPEED_SCALE_MPS`),
+  `tests/test_training_reward.py` (3 new tests replacing 2 obsolete
+  ones), `docs/rl_design.md` §6 (causal test 17).
+- Experiment output:
+  `experiments/2026-09-02_uncapped-speed-scaled-risk-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** The first genuine speed increase of the entire
+2026-09-01/02 arc that did *not* cost safety. Avg max speed 15.53 -> 17.13
+m/s (+10%), with damage/eliminations/off-track/wall-contact all still
+excellent (0/20 eliminated, unchanged; other metrics near-zero, not
+literally 0.000 anymore but close). Every one of the seven prior speed
+attempts either broke safety outright or only preserved it by also
+reducing speed -- this is the first to move both in the intended
+direction (well, one of the two: speed up, safety held).
+
+The catch: avg laps went 4.10 -> 3.90 and avg best lap time 24.76s ->
+28.46s (slower) -- the extra top speed didn't translate into a better
+overall race. Not yet diagnosed why (can't tell from headless stats alone
+whether it's driving differently through corners specifically, or just
+reaching a higher peak speed on straights without that helping lap time).
+
+**Decision and rationale:** Provisionally adopting this checkpoint as the
+new reference point, but explicitly flagged as an unresolved *trade-off*
+(speed up, lap time/count down), not an unambiguous improvement -- unlike
+every other adoption decision this week, which were clear wins on every
+metric that mattered. Reasoning for why this experiment differs from the
+seven that failed: those all changed a *value* on an axis with a real
+ceiling; this removes the ceiling's existence. "More training converges
+speed down toward the cap" (causal tests 11, 16) has no obvious reason to
+still apply once there's no cap to converge toward -- worth testing
+directly rather than assuming the old finding still holds.
+
+**Next steps:**
+1. **(recommended)** Train further under this new, uncapped reward
+   structure specifically -- a genuinely different question from every
+   prior "more training" experiment, all of which were run under the old
+   capped reward.
+2. Watch it live (`controllers.sac_candidate`, now pointed at this
+   checkpoint) to see qualitatively whether it's attempting anything
+   drift-like through corners, or just carrying more speed on straights
+   without changing cornering technique.
+3. If lap time still doesn't improve, consider loosening
+   `WEIGHT_CENTER_OFFSET` alongside this change -- it currently penalizes
+   any lateral deviation from centerline uniformly, which would suppress
+   a real racing line (let alone a drift) even if it's genuinely faster.

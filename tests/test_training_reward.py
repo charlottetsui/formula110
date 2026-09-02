@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from racing.student.api import CameraSensors, ContactSensors, ImuSensors, LidarSensors, OdometrySensors, RobotSensors
 from training.reward import (
     IDLE_SPEED_MPS,
-    MAX_REWARDED_SPEED_MPS,
     NEAR_ELIMINATION_DAMAGE,
+    WALL_PROXIMITY_SPEED_SCALE_MPS,
     YAW_RATE_CHANGE_SCALE_DEGREES_PER_S,
     is_new_episode,
     is_terminal,
@@ -75,20 +77,48 @@ def test_step_reward_idle_penalty_only_applies_below_the_speed_threshold() -> No
     assert step_reward(previous, just_below_threshold) < step_reward(previous, at_threshold)
 
 
-def test_step_reward_progress_scales_with_speed_below_the_cap() -> None:
+def test_step_reward_progress_keeps_scaling_with_speed_uncapped() -> None:
+    # 2026-09-02: MAX_REWARDED_SPEED_MPS was removed entirely -- there is no
+    # speed at which additional progress reward stops accruing anymore.
     previous = RobotSensors(dt_s=1 / 60)
-    slower = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS / 2))
-    faster = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS))
+    fast = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=10.0))
+    much_faster = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=40.0))
 
-    assert step_reward(previous, slower) < step_reward(previous, faster)
+    assert step_reward(previous, fast) < step_reward(previous, much_faster)
 
 
-def test_step_reward_progress_saturates_above_the_speed_cap() -> None:
-    previous = RobotSensors(dt_s=1 / 60)
-    at_cap = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS))
-    far_above_cap = RobotSensors(dt_s=1 / 60, odometry=OdometrySensors(speed_mps=MAX_REWARDED_SPEED_MPS * 4))
+def test_step_reward_wall_proximity_penalty_grows_with_speed() -> None:
+    # Isolates the proximity-vs-speed scaling from the (now uncapped) progress
+    # term by comparing the *cost of an identical nearby wall* at two speeds --
+    # the progress term is identical between the "open" and "near wall" cases
+    # at a fixed speed, so it cancels out of the subtraction.
+    previous = RobotSensors()
+    close_wall = LidarSensors(distances_m=tuple(1.0 for _ in range(7)))
+    slow_open = RobotSensors(odometry=OdometrySensors(speed_mps=1.0))
+    slow_near_wall = RobotSensors(odometry=OdometrySensors(speed_mps=1.0), wall_lidar=close_wall)
+    fast_open = RobotSensors(odometry=OdometrySensors(speed_mps=30.0))
+    fast_near_wall = RobotSensors(odometry=OdometrySensors(speed_mps=30.0), wall_lidar=close_wall)
 
-    assert step_reward(previous, at_cap) == step_reward(previous, far_above_cap)
+    slow_wall_cost = step_reward(previous, slow_open) - step_reward(previous, slow_near_wall)
+    fast_wall_cost = step_reward(previous, fast_open) - step_reward(previous, fast_near_wall)
+
+    assert fast_wall_cost > slow_wall_cost
+
+
+def test_step_reward_wall_proximity_multiplier_doubles_at_the_speed_scale() -> None:
+    previous = RobotSensors()
+    close_wall = LidarSensors(distances_m=tuple(1.0 for _ in range(7)))
+    stationary_open = RobotSensors(odometry=OdometrySensors(speed_mps=0.0))
+    stationary_near_wall = RobotSensors(odometry=OdometrySensors(speed_mps=0.0), wall_lidar=close_wall)
+    at_scale_open = RobotSensors(odometry=OdometrySensors(speed_mps=WALL_PROXIMITY_SPEED_SCALE_MPS))
+    at_scale_near_wall = RobotSensors(
+        odometry=OdometrySensors(speed_mps=WALL_PROXIMITY_SPEED_SCALE_MPS), wall_lidar=close_wall
+    )
+
+    stationary_cost = step_reward(previous, stationary_open) - step_reward(previous, stationary_near_wall)
+    at_scale_cost = step_reward(previous, at_scale_open) - step_reward(previous, at_scale_near_wall)
+
+    assert at_scale_cost == pytest.approx(stationary_cost * 2.0)
 
 
 def test_step_reward_applies_a_one_time_penalty_for_the_terminal_transition() -> None:

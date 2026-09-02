@@ -1,0 +1,21 @@
+races: 40
+round_seconds: 120.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 800000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+trajectory_bonus: False
+resume_from: None
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-02_uncapped-speed-scaled-risk-seed110
+git_commit: d4414590da427727ddd6d089520b40fd08ec6384
+training_seconds: 387.71
+transitions_collected: 498864
+gradient_updates: 124467
+observation_dim: 17
+action_dim: 2

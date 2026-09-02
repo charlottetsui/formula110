@@ -637,15 +637,55 @@ primary approach, roughly in order of expected leverage:
    independent attempts to beat it, several of which are now understood
    well enough to explain why they didn't help.
 
-   Paused here (sixteen experiments deep) — see `docs/lab_notebook.md`'s
-   2026-09-02 entry for next-step options. **Current best checkpoint for
-   speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
-   eliminations, zero damage/off-track/wall-contact in every evaluated
-   race, ~15.5 m/s max speed, 4-5 laps and 20/20 race wins across both
-   training and held-out seeds. (Note: `controllers.sac_candidate`
-   auto-selects the *newest* checkpoint by file time — point
-   `FORMULA110_SAC_CHECKPOINT` at `2026-09-01_more-training2-seed110`
-   explicitly if watching it live.)
+   Paused here (sixteen experiments deep) at the end of 2026-09-01/02's
+   speed-optimization arc. **Superseded 2026-09-02** — see causal test 17
+   below, which removes `MAX_REWARDED_SPEED_MPS` structurally rather than
+   continuing to search its value.
+
+   **Causal test 17 (run, 2026-09-02) — structural change, not another
+   value on the same axis:** directed to increase throttle/speed
+   specifically (the checkpoint above was judged "too safe"), and to
+   explore drift-style cornering. A hand-coded drift controller isn't
+   compatible with the self-play/SAC architecture (rule-based control
+   fighting the learned policy, out of scope) or verifiable without
+   testing whether the physics model even rewards it — instead, removed
+   `MAX_REWARDED_SPEED_MPS` entirely (`forward_progress_m` is now
+   uncapped) and added `WALL_PROXIMITY_SPEED_SCALE_MPS = 10.0`: the
+   wall-proximity penalty now scales with current speed (2x at 10 m/s, 3x
+   at 20 m/s, ...) instead of being speed-blind. Same intent as every
+   prior wall-proximity change, sharpened: price risk by how dangerous
+   the *current situation* is, not by a flat speed ceiling that treats
+   "near a wall at 1 m/s" the same as "near a wall at 35 m/s." Same
+   seed/races=40/round-length as every comparison this week.
+
+   **Result — genuinely different from all seven prior speed attempts**:
+   avg max speed 15.53 → **17.13 m/s (+10%)**, with safety essentially
+   preserved (0/20 eliminated both before and after; damage/off-track/
+   wall-contact still near-zero, not literally 0.000 anymore but close).
+   This is the first speed-focused change all day to increase speed
+   *without* regressing safety — every earlier attempt did one or the
+   other, never both. The catch: avg laps 4.10 → 3.90 and avg best lap
+   time 24.76s → 28.46s (slower) — the extra top speed didn't translate
+   into a better overall race, for reasons not yet diagnosed (can't tell
+   from headless stats alone whether it's cornering differently or just
+   faster on straights without converting that into pace). See
+   `experiments/2026-09-02_uncapped-speed-scaled-risk-seed110/notes.md`.
+
+   **Why this one differs from the seven that failed:** those all changed
+   a *value* on an axis with a real ceiling (`MAX_REWARDED_SPEED_MPS`) —
+   more training, resuming, or raising the number all converged back
+   toward (or collapsed around) that same ceiling. This change removes
+   the ceiling's existence, not its value, so "more training converges
+   speed down" (causal tests 11, 16) has no obvious reason to apply here
+   — worth testing directly rather than assuming it still holds.
+
+   Provisionally adopting this as the new reference point, flagged
+   explicitly as an unresolved trade-off (speed up, lap time down) rather
+   than an unambiguous win. **Current checkpoint:
+   `2026-09-02_uncapped-speed-scaled-risk-seed110`** — 0/20 eliminations,
+   ~17.1 m/s avg max speed (up from ~15.5), 3.90 avg laps, 20/20 race
+   wins. (`controllers.sac_candidate` auto-selects the newest checkpoint
+   by file time — this one, as of this entry.)
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the

@@ -122,23 +122,47 @@ WEIGHT_TERMINAL_PENALTY = 100.0
 # than continuing to search this axis. See docs/lab_notebook.md's
 # 2026-09-02 entry and
 # experiments/2026-09-02_speedcap12-seed110/notes.md.
-MAX_REWARDED_SPEED_MPS = 10.0
+#
+# REMOVED entirely (2026-09-02) after seven consecutive experiments
+# (this cap at three values, more training via two different paths,
+# steering smoothness, a best-trajectory bonus) all failed to beat the
+# races=40 reference on speed -- the mechanism was understood by then:
+# a flat cap is context-blind, so any speed above it is reward-neutral
+# regardless of whether the car has 10m of open track ahead or is
+# skimming a wall. Replaced with WALL_PROXIMITY_SPEED_SCALE_MPS below:
+# forward_progress_m is now uncapped, and the *wall-proximity* penalty
+# scales with current speed instead, so risk is priced by how dangerous
+# the current situation actually is (fast + close to a wall) rather than
+# by a single global speed number. See docs/lab_notebook.md's 2026-09-02
+# entry.
 
 # WALL_WARNING_DISTANCE_M raised 3.0 -> 6.0 and WEIGHT_WALL_PROXIMITY raised
 # 0.5 -> 1.0 (2026-09-01) as a direct wall-avoidance strengthening pass,
 # alongside the WEIGHT_TERMINAL_PENALTY raise above: every crashing
-# checkpoint so far has driven at 15-40+ m/s, and at those speeds a 3.0m
+# checkpoint so far had driven at 15-40+ m/s, and at those speeds a 3.0m
 # warning distance gives almost no reaction time (covered in well under a
 # tenth of a second at 38 m/s) -- the proximity penalty was only ever
 # ramping up once a collision was already essentially unavoidable. 6.0m
-# gives real lead time even at the MAX_REWARDED_SPEED_MPS cruising speed
-# (~0.6s at 10 m/s), and doubling the weight makes the signal comparable
-# in scale to WEIGHT_PROGRESS so avoiding a wall competes with, rather
-# than being dominated by, going forward. See docs/lab_notebook.md's
-# 2026-09-01 entry.
+# gives real lead time even at a moderate cruising speed (~0.6s at
+# 10 m/s), and doubling the weight makes the signal comparable in scale
+# to WEIGHT_PROGRESS so avoiding a wall competes with, rather than being
+# dominated by, going forward. See docs/lab_notebook.md's 2026-09-01
+# entry.
 WEIGHT_WALL_PROXIMITY = 1.0
 WALL_WARNING_DISTANCE_M = 6.0
 WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
+# Added 2026-09-02 alongside removing MAX_REWARDED_SPEED_MPS (above): the
+# same wall-proximity reading now costs more the faster the car is going,
+# so "close to a wall at 5 m/s" (recoverable, common while lining up a
+# corner) and "close to a wall at 35 m/s" (usually fatal) are no longer
+# priced the same. At this speed, proximity penalty is 2x its 0 m/s value;
+# chosen to match the old MAX_REWARDED_SPEED_MPS cruising target so the
+# risk curve's shape is familiar even though the hard ceiling is gone.
+# Intent: let the policy go as fast as a given moment's margin allows --
+# including carrying speed through a corner with some slide, if that's
+# actually faster in this physics model -- rather than a flat,
+# situation-blind limit. See docs/lab_notebook.md's 2026-09-02 entry.
+WALL_PROXIMITY_SPEED_SCALE_MPS = 10.0
 
 # Tried 2026-09-02 after three attempts to raise speed via
 # MAX_REWARDED_SPEED_MPS (10.0 -> 12.0, -> 20.0) all failed to beat the
@@ -172,10 +196,7 @@ NEAR_ELIMINATION_DAMAGE = 0.9
 
 def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
     """Return the proxy reward for the transition from `previous` to `current`."""
-    rewarded_speed_mps = math.copysign(
-        min(abs(current.odometry.speed_mps), MAX_REWARDED_SPEED_MPS), current.odometry.speed_mps
-    )
-    forward_progress_m = rewarded_speed_mps * math.cos(math.radians(current.camera.heading_error_degrees))
+    forward_progress_m = current.odometry.speed_mps * math.cos(math.radians(current.camera.heading_error_degrees))
     forward_progress_m *= current.dt_s
     damage_delta = max(0.0, current.contact.damage - previous.contact.damage)
     reverse_penalty = max(0.0, -current.odometry.speed_mps)
@@ -183,11 +204,13 @@ def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
     is_idle = abs(current.odometry.speed_mps) < IDLE_SPEED_MPS
     yaw_rate_change = abs(current.imu.yaw_rate_degrees_per_s - previous.imu.yaw_rate_degrees_per_s)
     steering_smoothness_penalty = min(1.0, yaw_rate_change / YAW_RATE_CHANGE_SCALE_DEGREES_PER_S)
+    speed_risk_multiplier = 1.0 + abs(current.odometry.speed_mps) / WALL_PROXIMITY_SPEED_SCALE_MPS
+    wall_proximity_penalty = _wall_proximity_penalty(current.wall_lidar) * speed_risk_multiplier
 
     return (
         WEIGHT_PROGRESS * forward_progress_m
         - WEIGHT_CENTER_OFFSET * abs(current.camera.center_offset_m)
-        - WEIGHT_WALL_PROXIMITY * _wall_proximity_penalty(current.wall_lidar)
+        - WEIGHT_WALL_PROXIMITY * wall_proximity_penalty
         - WEIGHT_CONTACT * (1.0 if in_contact else 0.0)
         - WEIGHT_DAMAGE * damage_delta
         - WEIGHT_REVERSE * reverse_penalty
