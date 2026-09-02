@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from racing.student.api import CameraSensors, ContactSensors, LidarSensors, OdometrySensors, RobotSensors
+from racing.student.api import CameraSensors, ContactSensors, ImuSensors, LidarSensors, OdometrySensors, RobotSensors
 from training.reward import (
     IDLE_SPEED_MPS,
     MAX_REWARDED_SPEED_MPS,
     NEAR_ELIMINATION_DAMAGE,
+    YAW_RATE_CHANGE_SCALE_DEGREES_PER_S,
     is_new_episode,
     is_terminal,
     step_reward,
@@ -97,6 +98,17 @@ def test_step_reward_applies_a_one_time_penalty_for_the_terminal_transition() ->
 
     # Both take on similar new damage this tick; only `eliminated` is terminal.
     assert step_reward(previous, eliminated) < step_reward(previous, survives)
+
+
+def test_step_reward_steering_smoothness_penalty_is_currently_disabled() -> None:
+    # WEIGHT_STEERING_SMOOTHNESS was tried at 0.1 (2026-09-02) and reverted to
+    # 0.0 after a clear regression -- verify yaw-rate swings have no effect
+    # on reward while the mechanism stays disabled by weight.
+    previous = RobotSensors(imu=ImuSensors(yaw_rate_degrees_per_s=0.0))
+    small_change = RobotSensors(imu=ImuSensors(yaw_rate_degrees_per_s=5.0))
+    large_change = RobotSensors(imu=ImuSensors(yaw_rate_degrees_per_s=YAW_RATE_CHANGE_SCALE_DEGREES_PER_S * 4))
+
+    assert step_reward(previous, large_change) == step_reward(previous, small_change)
 
 
 def test_is_terminal_true_at_and_above_near_elimination_threshold() -> None:

@@ -140,6 +140,27 @@ WEIGHT_WALL_PROXIMITY = 1.0
 WALL_WARNING_DISTANCE_M = 6.0
 WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
 
+# Tried 2026-09-02 after three attempts to raise speed via
+# MAX_REWARDED_SPEED_MPS (10.0 -> 12.0, -> 20.0) all failed to beat the
+# 10.0 reference on lap time -- tried a different lever: penalize
+# oscillating/hesitant steering instead of pushing the speed incentive
+# further. `step_reward` only sees sensor transitions (no direct access to
+# the steer action -- see `training.controller.TrainableController`, which
+# computes reward before choosing the next action), so this used
+# tick-to-tick change in `imu.yaw_rate_degrees_per_s` as a proxy for
+# jerky steering. Reverted to 0.0 (mechanism kept, disabled by weight):
+# trained at weight=0.1 and got the clearest regression of any experiment
+# so far -- laps completed halved (4.10 avg -> exactly 2.00, every race),
+# best lap time nearly doubled (24.76s -> 45.48s), max speed dropped 31%
+# (15.53 -> 10.75 m/s), with safety unaffected (still perfect). Raw
+# yaw-rate *change* can't distinguish wasteful oscillation from a
+# legitimate, necessary steering input for cornering -- both involve the
+# yaw rate changing quickly, so the penalty suppressed real cornering, not
+# just hesitation. See docs/lab_notebook.md's 2026-09-02 entry and
+# experiments/2026-09-02_steering-smoothness-seed110/notes.md.
+WEIGHT_STEERING_SMOOTHNESS = 0.0
+YAW_RATE_CHANGE_SCALE_DEGREES_PER_S = 200.0
+
 # Real, exact elimination (`damage == 1.0`) is never observed in-band: the
 # simulator stops calling a controller once its car is marked eliminated,
 # and that flag is set from the damage applied *after* the tick whose
@@ -160,6 +181,8 @@ def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
     reverse_penalty = max(0.0, -current.odometry.speed_mps)
     in_contact = current.contact.wall > 0.0 or current.contact.robot > 0.0
     is_idle = abs(current.odometry.speed_mps) < IDLE_SPEED_MPS
+    yaw_rate_change = abs(current.imu.yaw_rate_degrees_per_s - previous.imu.yaw_rate_degrees_per_s)
+    steering_smoothness_penalty = min(1.0, yaw_rate_change / YAW_RATE_CHANGE_SCALE_DEGREES_PER_S)
 
     return (
         WEIGHT_PROGRESS * forward_progress_m
@@ -170,6 +193,7 @@ def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
         - WEIGHT_REVERSE * reverse_penalty
         - WEIGHT_IDLE * (1.0 if is_idle else 0.0)
         - WEIGHT_TERMINAL_PENALTY * (1.0 if is_terminal(current) else 0.0)
+        - WEIGHT_STEERING_SMOOTHNESS * steering_smoothness_penalty
     )
 
 

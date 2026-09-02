@@ -511,7 +511,36 @@ primary approach, roughly in order of expected leverage:
    fine-tuning from an existing checkpoint rather than retraining from
    scratch each time, which `scripts/train_sac.py` doesn't yet support).
 
-   Paused here (twelve experiments deep) — see `docs/lab_notebook.md`'s
+   **Causal test 13 (run, 2026-09-02) — steering-smoothness penalty, the
+   clearest regression yet:** added `WEIGHT_STEERING_SMOOTHNESS = 0.1`,
+   penalizing tick-to-tick change in `imu.yaw_rate_degrees_per_s` as a
+   proxy for jerky steering (`step_reward` has no direct access to the
+   steer action itself). Same seed/races=40/round-length as the
+   reference, trained from scratch. Result: laps completed **halved**
+   (4.10 avg → exactly 2.00, every single race), best lap time **nearly
+   doubled** (24.76s → 45.48s), max speed dropped 31% (15.53 → 10.75 m/s)
+   — safety unaffected (still perfect). Reverted
+   `WEIGHT_STEERING_SMOOTHNESS` to `0.0` (mechanism kept in code,
+   disabled by weight). See
+   `experiments/2026-09-02_steering-smoothness-seed110/notes.md`.
+
+   **Read:** raw yaw-rate *change* can't distinguish wasteful oscillation
+   from a legitimate, necessary steering input for cornering — both
+   involve yaw rate changing quickly — so the penalty suppressed real
+   cornering, not just hesitation. This is the **fourth** consecutive
+   reward-tuning attempt aimed at the speed goal (cap=12.0, cap=20.0,
+   more training at cap=10.0, this term) to fail to beat the plain
+   races=40 reference. That consistency is itself the finding:
+   `2026-09-01_more-training2-seed110` sits in a fairly strong local
+   optimum for this reward structure that isolated tweaks — each tested
+   as a fresh from-scratch run — haven't improved on. **Recommending a
+   pause on further reward-tuning attempts at pure speed optimization**
+   until either a genuinely different mechanism is available (e.g.
+   fine-tuning from the existing checkpoint instead of retraining from
+   scratch) or the team decides the current speed is good enough and
+   shifts focus elsewhere.
+
+   Paused here (thirteen experiments deep) — see `docs/lab_notebook.md`'s
    2026-09-02 entry for next-step options. **Current best checkpoint for
    speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
    eliminations, zero damage/off-track/wall-contact in every evaluated

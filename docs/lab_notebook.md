@@ -1755,3 +1755,92 @@ checkpoint for speed+safety.
    a value with a different seed would help separate a genuine causal
    effect from ordinary run-to-run variance, which hasn't been
    characterized on this specific axis.
+
+---
+
+## 2026-09-02 (continued)
+
+**Participants and contributions:** Charlotte Tsui -- directed pursuing
+"path 1" (a different lever than reward magnitude) from the prior
+options. Claude Code (AI agent) -- chose the "reduce hesitation" option
+over the checkpoint-resume option (more directly testable without new
+infrastructure), implemented it, and found the clearest regression of
+any experiment run today.
+
+**Question or objective:** Does penalizing oscillating/hesitant steering
+improve lap time over the races=40 reference, as an alternative to
+`MAX_REWARDED_SPEED_MPS` tuning (which had failed three times)?
+
+**What we investigated or changed:** Added
+`WEIGHT_STEERING_SMOOTHNESS = 0.1` to `src/training/reward.py`, penalizing
+tick-to-tick change in `imu.yaw_rate_degrees_per_s` (scaled by
+`YAW_RATE_CHANGE_SCALE_DEGREES_PER_S = 200.0`, capped at 1.0) as a proxy
+for jerky steering -- `step_reward` only receives sensor transitions, not
+the raw steer action (the action for a given tick is chosen *after*
+reward is computed for the previous transition, inside
+`TrainableController.__call__`), so a direct action-delta penalty would
+have needed a larger refactor; the yaw-rate-change proxy avoided that.
+Added 2 tests, then reworked to 1 after the revert (see below). Retrained
+from scratch with the exact same seed (110), races=40, round_seconds=120,
+and buffer_capacity=800000 as the reference.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's output and the
+  reference checkpoint's known numbers.
+- AI-agent assistance: Claude Code computed exact averages before
+  characterizing the result (same discipline as every prior entry), which
+  is what surfaced how uniform the regression was (every one of 10 races
+  vs. `crash_fast` completed exactly 2 laps). After reverting the weight
+  to 0.0, recognized that the two tests written for the *active*
+  mechanism would now assert something false (a real behavioral
+  difference that no longer exists at weight=0) -- rather than leaving
+  them to silently pass by coincidence or fail confusingly, replaced them
+  with one test that explicitly documents and verifies the mechanism is
+  currently inert. Ran `ruff`/`pyright`/`pytest -q` (147 passed) after
+  the revert and test rewrite.
+- Commits or code: `src/training/reward.py`
+  (`WEIGHT_STEERING_SMOOTHNESS` tried at 0.1, reverted to 0.0),
+  `tests/test_training_reward.py` (2 tests replaced with 1),
+  `docs/rl_design.md` §6 (causal test 13).
+- Experiment output:
+  `experiments/2026-09-02_steering-smoothness-seed110/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** The clearest, most uniform regression of any
+experiment today. Safety unaffected (still 0.000 damage, 0.00s off-track/
+wall-contact, 20/20 wins). But laps completed halved (4.10 avg -> exactly
+2.00 in every one of 10 evaluated races), best lap time nearly doubled
+(24.76s -> 45.48s), and max speed dropped 31% (15.53 -> 10.75 m/s). Best
+explanation: penalizing raw yaw-rate *change* can't distinguish wasteful
+oscillation from a legitimate, necessary steering input for cornering --
+both involve the yaw rate changing quickly -- so the penalty suppressed
+real cornering itself, not just hesitation.
+
+**Decision and rationale:** Reverted `WEIGHT_STEERING_SMOOTHNESS` to
+`0.0`, keeping the mechanism in code (documented, disabled) rather than
+deleting it. Not adopting this checkpoint.
+`2026-09-01_more-training2-seed110` remains the best checkpoint. This is
+the fourth consecutive reward-tuning attempt at the speed goal (cap=12.0,
+cap=20.0, more training at cap=10.0, this entry) to fail against the
+plain races=40 reference -- recommending a pause on further reward-tuning
+attempts at pure speed optimization specifically, rather than trying a
+fifth variant.
+
+**Next steps:**
+1. **(recommended)** Pause reward-magnitude/shape tuning for the speed
+   goal. If a smarter steering-smoothness proxy is wanted later:
+   distinguish *sustained* turning (real cornering) from *oscillating*
+   turning (yaw rate repeatedly changing sign/direction in a short
+   window) -- e.g. penalize sign changes rather than raw magnitude of
+   change, which wouldn't penalize a held turn the way this did.
+2. Consider adding a `--resume-from` option to `scripts/train_sac.py`
+   (currently always initializes a fresh `SACAgent`) so training could
+   fine-tune from the races=40 checkpoint instead of re-deriving a new
+   policy from a random init under each modified reward -- a genuinely
+   different mechanism than anything tried today.
+3. Otherwise, treat races=40 as a strong, practical result and shift
+   focus to other open items: broader seed testing, repackaging
+   `controllers.race_faster` from the current best checkpoint (still
+   packages races=20), or the `controllers.minimum_viable` module gap.

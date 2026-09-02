@@ -1,0 +1,19 @@
+races: 40
+round_seconds: 120.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 800000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-02_steering-smoothness-seed110
+git_commit: a698dc8d5533f868a95d24a3dd8e2af9dcb083fe
+training_seconds: 412.41
+transitions_collected: 545764
+gradient_updates: 136192
+observation_dim: 17
+action_dim: 2
