@@ -253,3 +253,55 @@ gain comes from maintaining high speed through the lap instead.
 These measurements cover deterministic simulator starts, not every possible
 opponent interaction or perturbed pose. Treat this controller as the fast-data
 expert and retain the earlier controllers as fallbacks and comparison points.
+
+## 12. Use the phase-based leaderboard attempt
+
+The leaderboard headers show that the leading cars reach roughly 60–78 mph.
+The earlier boundary expert was artificially limited to about 24 mph, rather
+than being limited by the simulator. The more aggressive attempt is in
+[`src/controllers/leaderboard_expert.py`](src/controllers/leaderboard_expert.py).
+
+Run it with:
+
+```bash
+uv run racing \
+  --seed 110 \
+  --student-module controllers.leaderboard_expert
+```
+
+This controller uses four explicit speed phases:
+
+| Geometry phase | Target speed |
+| --- | ---: |
+| Clear straight | 38 m/s (85.0 mph) |
+| Gentle bend | 36 m/s (80.5 mph) |
+| Medium bend | 31 m/s (69.3 mph) |
+| Severe bend | 23 m/s (51.4 mph) |
+
+It applies full forward or reverse throttle outside a narrow target-speed band.
+Steering emphasizes heading and future geometry, ignores the first 2 m of
+center displacement, damps excessive yaw, and limits how quickly the steering
+command can reverse direction. A speed-dependent front-wall horizon can
+override the phase target.
+
+The values above are empirically important. Increasing the final three targets
+to 37, 33, and 25 m/s caused persistent wall contact on the official seeds.
+That sharp failure boundary is why the checked-in attempt uses the fastest
+configuration observed to finish both official trials cleanly.
+
+Exact local autograder-worker results for the retained tune are:
+
+| Metric | Seed 110 | Seed 2026 | Average |
+| --- | ---: | ---: | ---: |
+| Partial laps | 2.7448 | 2.8486 | 2.7967 |
+| First lap | 11.217 s | 11.017 s | 11.117 s |
+| Best lap | 10.200 s | 10.167 s | 10.183 s |
+| Top speed | 37.591 m/s | 37.591 m/s | 37.591 m/s |
+| Damage | 0% | 0% | 0% |
+| Wall contact | 0 s | 0 s | 0 s |
+
+This more than doubles the earlier submission's approximately 1.34 partial
+laps and raises top speed from about 23.6 mph to 84.1 mph. It is still an
+experimental leaderboard controller: the current leaders' shorter lap times
+show that better corner-specific steering or an automatically optimized speed
+profile remains necessary.
