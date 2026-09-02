@@ -604,7 +604,40 @@ primary approach, roughly in order of expected leverage:
    the already-good races=40 policy directly, instead of re-deriving a
    new one from random init under each reward variant.
 
-   Paused here (fifteen experiments deep) — see `docs/lab_notebook.md`'s
+   **Causal test 16 (run, 2026-09-02) — resuming confirms, doesn't
+   contradict, causal test 11:** used `--resume-from` to continue
+   training the races=40 checkpoint for 40 more races (plain reward,
+   `--warmup-steps 0`), rather than another from-scratch reward variant.
+   Safety **exactly preserved** (identical 0.000 damage, 0.00s off-track/
+   wall-contact, 0.15 marshal/race, both before and after). But laps
+   *halved* (4.10 → 2.00) and best lap time nearly *doubled* (24.76s →
+   46.36s), landing at 13.91 m/s — between races=40's 15.53 m/s and
+   races=80's 13.1-14.7 m/s (causal test 11, same reward, same total
+   gradient-update count reached via a fresh-from-scratch run instead of
+   resuming). **Two independent training paths now agree**: under
+   `MAX_REWARDED_SPEED_MPS = 10.0`, more optimization — however it's
+   reached — converges the policy toward ~13-15 m/s, not past it.
+   races=40's ~15.53 m/s looks like a residual of not-yet-fully-converged
+   training, not a stable point the reward actually rewards. See
+   `experiments/2026-09-02_resumed-more-training-seed110/notes.md`.
+
+   **Overall read, seven experiments into the speed-optimization
+   question:** cap=12.0, cap=20.0, more training from scratch (races=80),
+   steering smoothness, trajectory-bonus (buggy and fixed), and this
+   resumed run have *all* failed to beat races=40 on speed — either by
+   regressing safety (cap=20.0, trajectory-bonus buggy) or by regressing
+   speed while preserving safety (cap=12.0, races=80, trajectory-bonus
+   fixed, this resumed run). The mechanism is now understood, not just
+   observed: `MAX_REWARDED_SPEED_MPS` sets a hard ceiling on what any
+   amount of further optimization converges toward, and directly raising
+   that ceiling (tried twice) either does nothing (small raise) or breaks
+   the speed/control balance (large raise). **Recommending races=40 as
+   the practical stopping point for this reward structure** — not
+   provably optimal, but the strongest result found after seven
+   independent attempts to beat it, several of which are now understood
+   well enough to explain why they didn't help.
+
+   Paused here (sixteen experiments deep) — see `docs/lab_notebook.md`'s
    2026-09-02 entry for next-step options. **Current best checkpoint for
    speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
    eliminations, zero damage/off-track/wall-contact in every evaluated

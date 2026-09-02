@@ -2065,3 +2065,87 @@ variant trained from scratch.
    project's remaining time and shift focus to other open items: broader
    seed testing, repackaging `controllers.race_faster`, or the
    `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-02 (continued, 4)
+
+**Participants and contributions:** Charlotte Tsui -- none this entry
+(continuation of "proceed with 1 then continue with 2"). Claude Code (AI
+agent) -- finished the resume-from test, recognized it confirmed rather
+than contradicted an earlier finding, and synthesized the full
+seven-experiment arc into one clear recommendation.
+
+**Question or objective:** Finish testing whether `--resume-from`
+(continuing training from the already-good races=40 checkpoint) beats
+training a new reward variant from scratch.
+
+**What we investigated or changed:** Evaluated the completed
+`--resume-from` run (races=40 checkpoint, +40 more races, plain reward,
+`--warmup-steps 0`, otherwise identical config) against the races=40
+reference.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's output and the two
+  checkpoints being compared.
+- AI-agent assistance: Claude Code recognized the result's significance
+  immediately rather than treating it as a standalone data point --
+  compared the resumed run's landing speed (13.91 m/s) against both the
+  reference (15.53 m/s) *and* the previous day's races=80 result
+  (13.1-14.7 m/s, same reward, different training path), which is what
+  revealed the two independent confirmations of the same mechanism. Ran
+  `ruff`/`pyright`/`pytest -q` before this entry's doc-only changes.
+- Commits or code: `docs/rl_design.md` §6 (causal test 16, plus an
+  overall seven-experiment synthesis).
+- Experiment output:
+  `experiments/2026-09-02_resumed-more-training-seed110/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** Safety exactly preserved (identical 0.000 damage,
+0.00s off-track/wall-contact, 0.15 marshal/race, before and after
+resuming). But laps halved (4.10 -> 2.00) and best lap time nearly
+doubled (24.76s -> 46.36s), landing at 13.91 m/s -- between races=40's
+15.53 m/s and races=80's 13.1-14.7 m/s (2026-09-01's causal test 11, same
+reward, a comparable total gradient-update count reached via a
+from-scratch run instead of resuming). Two independent training paths
+(from-scratch-then-more, and resume-then-more) now agree: under
+`MAX_REWARDED_SPEED_MPS = 10.0`, more optimization converges the policy
+toward ~13-15 m/s regardless of how it gets there -- races=40's ~15.53
+m/s looks like a residual of not-yet-fully-converged training, not a
+stable point the reward actually favors.
+
+**Decision and rationale:** Not adopting this checkpoint.
+`2026-09-01_more-training2-seed110` (races=40) remains best. Zooming out
+across the full "proceed with 1 then continue with 2" arc plus everything
+before it: **seven consecutive experiments today** (cap=12.0, cap=20.0,
+more training from scratch [races=80], steering smoothness,
+trajectory-bonus buggy, trajectory-bonus fixed, this resumed run) have
+failed to beat races=40 on speed -- either by regressing safety or by
+regressing speed while keeping safety intact. This is no longer "haven't
+found it yet" -- the mechanism is understood: `MAX_REWARDED_SPEED_MPS`
+sets a real ceiling that any amount of further optimization converges
+toward, and directly raising it (tried twice, small and large) either did
+nothing or broke the speed/control balance. **Recommending races=40 as
+the practical stopping point for this reward structure and shifting focus
+to consolidation** rather than an eighth variant.
+
+**Next steps:**
+1. **(recommended)** Treat races=40 as the practical best result for this
+   SAC track's remaining time. Shift to: broader seed testing beyond the
+   fixed 5 to build robustness confidence, repackaging
+   `controllers.race_faster` from this checkpoint (it currently packages
+   the older races=20 one, per the 2026-09-01 packaging entries), and the
+   `controllers.minimum_viable` module gap.
+2. If more speed is wanted later, the next genuinely new idea needs to
+   change the reward's structural ceiling itself, not just its value --
+   e.g. a progress term that scales with *safe* speed (conditioned on
+   wall-proximity margin) rather than a flat cap. This is a bigger design
+   change than anything tried today and would warrant its own dedicated
+   investigation, not another quick variant.
+3. Still open: the `trajectory-bonus` + `resume-from` combination (refine
+   an already-competent policy with the bonus rather than learning both
+   "how to drive" and "beat your own record" from scratch at once) was
+   never tried -- noted for completeness, but deprioritized given the
+   seven-experiment pattern above.
