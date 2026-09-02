@@ -464,14 +464,38 @@ primary approach, roughly in order of expected leverage:
    more training on the existing reward is the lever that has worked
    cleanly all day (see causal tests 8-9).
 
-   Paused here (ten experiments deep) — see `docs/lab_notebook.md`'s
-   2026-09-01 entry for next-step options. **Current best checkpoint:
-   `2026-09-01_more-training2-seed110`** — 0/20 eliminations, zero
-   damage/off-track/wall-contact in every evaluated race, ~15.5 m/s max
-   speed, 4-5 laps and 20/20 race wins across both training and held-out
-   seeds. (Note: `controllers.sac_candidate` auto-selects the *newest*
-   checkpoint by file time, which after this entry is the regressed
-   speedcap20 one — point `FORMULA110_SAC_CHECKPOINT` at
+   **Causal test 11 (run) — more training converges toward the cap, not
+   past it:** same seed/reward/round-length again, `--races 40 → 80`
+   (~132k → ~276k gradient updates). Safety metrics stayed exactly at
+   floor (0.000 damage, 0.00s off-track, 0.00s wall contact, still
+   perfect across all 20 races) — but max speed and lap count both
+   *decreased*: 15.4-16.1 → 13.1-14.7 m/s, 4-5 → 2-3 laps, best lap times
+   21.2-27.9s → 34.3-42.1s (slower). See
+   `experiments/2026-09-01_more-training3-seed110/notes.md`.
+
+   **Read:** `MAX_REWARDED_SPEED_MPS = 10.0` gives zero reward benefit for
+   exceeding 10 m/s, only unrewarded risk — so continued training pushes
+   the policy toward the actual reward-maximizing speed (at/near the cap),
+   not past it. races=40's ~15-16 m/s was a residual of less-refined
+   training, not a reward-seeking choice; races=80 converged it back down.
+   **More training on the unchanged reward has hit its ceiling for the
+   speed goal specifically** — it will keep converging toward the cap,
+   not exceed it, however much further it's trained. Combined with causal
+   test 10 (doubling the cap outright regressed badly), the most promising
+   untried lever is a **smaller** cap increase (e.g. 10.0 → 12-13.0,
+   close to races=40's own organic ceiling) rather than either "leave it"
+   or "double it." races=40 remains the best checkpoint for the speed
+   goal specifically (races=80 is arguably safer/more consistent, but
+   that's not what's being optimized for).
+
+   Paused here (eleven experiments deep) — see `docs/lab_notebook.md`'s
+   2026-09-01 entry for next-step options. **Current best checkpoint for
+   speed+safety: `2026-09-01_more-training2-seed110`** (races=40) — 0/20
+   eliminations, zero damage/off-track/wall-contact in every evaluated
+   race, ~15.5 m/s max speed, 4-5 laps and 20/20 race wins across both
+   training and held-out seeds. (Note: `controllers.sac_candidate`
+   auto-selects the *newest* checkpoint by file time, which after this
+   entry is the races=80 one — point `FORMULA110_SAC_CHECKPOINT` at
    `2026-09-01_more-training2-seed110` explicitly if watching it live.)
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,

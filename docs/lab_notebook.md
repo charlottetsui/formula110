@@ -1605,3 +1605,75 @@ training on the existing, already-productive reward (causal tests 8-9).
    selects the newest checkpoint by file time, which is now the regressed
    speedcap20 run -- use `FORMULA110_SAC_CHECKPOINT` to point at
    `2026-09-01_more-training2-seed110` explicitly.
+
+---
+
+## 2026-09-01 (continued, 15)
+
+**Participants and contributions:** Charlotte Tsui -- directed pushing
+training further on the current (reverted, cap=10.0) reward. Claude Code
+(AI agent) -- ran it (backgrounded ~14 minutes), found speed and lap
+count went *down* rather than up, and worked out why before reporting it.
+
+**Question or objective:** Continue the races=10→20→40 training-budget
+trend on the unchanged reward -- does it keep improving?
+
+**What we investigated or changed:** Same seed (110), reward
+(`MAX_REWARDED_SPEED_MPS = 10.0`, as reverted last entry), round length
+(120s); `scripts/train_sac.py --races 80 --round-seconds 120
+--buffer-capacity 1600000 --eval-round-seconds 120 --seed 110`. Took
+849.0s training (1,106,262 transitions, 276,316 gradient updates),
+exceeding the foreground timeout as expected at this scale; backgrounded
+and picked up via the completion notification.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output and the
+  races=40 reference's known numbers.
+- AI-agent assistance: Claude Code noticed the aggregate scored-distance
+  number had *dropped* (~1780m avg at races=40 -> ~1130m avg here) before
+  assuming "more training = better" and pulled full per-race detail,
+  which is what surfaced that safety stayed perfect while speed and laps
+  both declined -- the opposite of what "push training further" was
+  aimed at. Worked out the mechanistic explanation (the reward doesn't
+  credit speed past the cap, so more training converges toward the cap
+  rather than past it) rather than just reporting numbers without
+  analysis.
+- Commits or code: `docs/rl_design.md` §6 (causal test 11).
+- Experiment output: `experiments/2026-09-01_more-training3-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a; not adopted as the speed-goal checkpoint.
+
+**What we observed:** Damage, off-track time, and wall contact stayed
+exactly zero across all 20 evaluation races -- more training didn't break
+anything. But max speed dropped (15.4-16.1 -> 13.1-14.7 m/s), laps
+completed dropped (4-5 -> 2-3), and best lap times got slower (21.2-27.9s
+-> 34.3-42.1s). `MAX_REWARDED_SPEED_MPS = 10.0` gives zero reward benefit
+for exceeding 10 m/s, only unrewarded risk -- races=40's ~15-16 m/s looks
+like a residual of less-converged training rather than a reward-seeking
+choice, and further training pulled it back down toward the actual
+reward-maximizing speed (at/near the cap).
+
+**Decision and rationale:** Not adopting this checkpoint for the stated
+speed goal -- `2026-09-01_more-training2-seed110` (races=40) remains
+better for "fast but safe" (races=80 is arguably even safer/more
+consistent, but that's not what's being optimized right now). This
+closes off "just train more" as a path to higher speed: combined with the
+previous entry's regression from doubling the cap outright, the evidence
+now points at a **smaller** cap increase (e.g. 10.0 -> 12-13.0, close to
+races=40's own organic ceiling) as the most promising untried lever,
+rather than either extreme already tried.
+
+**Next steps:**
+1. **(recommended)** Try a smaller speed-cap increase (10.0 -> 12.0 or
+   13.0) and retrain, comparing directly against the races=40 reference.
+2. `scripts/train_sac.py` always initializes a fresh `SACAgent` -- if
+   fine-tuning from an existing checkpoint would be valuable (continuing
+   races=40's policy rather than retraining from scratch each time), that
+   would need a `--resume-from` option added; not currently supported.
+3. Standing item: reducing hesitation (oscillating steering) as a
+   non-reward-magnitude lap-time lever.
+4. `controllers.sac_candidate` now auto-selects this run's checkpoint (the
+   newest by file time) -- still point `FORMULA110_SAC_CHECKPOINT` at
+   `2026-09-01_more-training2-seed110` for the best speed+safety
+   checkpoint.
