@@ -14,6 +14,8 @@ Start here:
 
 - [Getting Started](GETTING_STARTED.md): installation, manual driving, and your
   first controller
+- [Geometry Expert Guide](GEOMETRY_EXPERT.md): reliable, fast, and
+  boundary-prioritized experts for future imitation-learning demonstrations
 - [Sensor Reference](SENSORS.md): every input field, type, unit, range, and
   sentinel value
 - [Autograder Guide](autograder/README.md): building and operating the isolated
