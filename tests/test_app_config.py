@@ -31,6 +31,7 @@ from racing.graphics.colors import (
 from racing.race.head_to_head import HeadToHeadRaceEntry
 from racing.race.runtime import DEFAULT_RACE_RANDOM_SEED
 from racing.student.api import default_student_controller
+from racing.track.world import TRACK_ID_MUGELLO_SHORT
 
 
 def test_parse_window_size_accepts_width_by_height() -> None:
@@ -64,6 +65,13 @@ def test_racing_views_default_to_drone_camera() -> None:
 def test_racing_modes_share_default_random_seed() -> None:
     assert GameConfig().random_seed == DEFAULT_RACE_RANDOM_SEED
     assert HeadToHeadViewerConfig().random_seed == DEFAULT_RACE_RANDOM_SEED
+
+
+def test_racing_modes_default_to_static_mugello_track() -> None:
+    assert GameConfig().track_id == TRACK_ID_MUGELLO_SHORT
+    assert GameConfig().track_seed is None
+    assert HeadToHeadViewerConfig().track_id == TRACK_ID_MUGELLO_SHORT
+    assert HeadToHeadViewerConfig().track_seed is None
 
 
 def test_head_to_head_races_default_to_thirty_seconds() -> None:

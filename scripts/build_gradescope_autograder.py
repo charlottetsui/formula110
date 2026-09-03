@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_ROOT = PROJECT_ROOT / "autograder" / "gradescope"
 RACING_SOURCE = PROJECT_ROOT / "src" / "racing"
 DEFAULT_OUTPUT = PROJECT_ROOT / "artifacts" / "formula110-gradescope-autograder.zip"
+GRADING_SEEDS = (110, 2026, 1893, 7656, 9340)
 
 
 def build_config() -> dict[str, object]:
@@ -22,9 +23,14 @@ def build_config() -> dict[str, object]:
         "schema_version": 2,
         "submission_manifest": "formula110-submission.json",
         "control_function": "control",
-        "seeds": [110, 2026],
+        "seeds": list(GRADING_SEEDS),
         "duration_seconds": 30.0,
         "trial_timeout_seconds": 60.0,
+        "marshal": {
+            "stuck_seconds": 2.0,
+            "distance_penalty_m": 5.0,
+            "cooldown_seconds": 2.0,
+        },
         "rubric": {"completion_with_forward_progress": 100.0},
     }
 

@@ -5,8 +5,11 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
-from racing.main import DEFAULT_FORMULA_TEAM_COLOR, CameraView, GameConfig, create_app, parse_color_rgba
 from racing.graphics.track_rendering import bind_nearest_track_spotlights_to_node
+from racing.main import DEFAULT_FORMULA_TEAM_COLOR, CameraView, GameConfig, create_app, parse_color_rgba
+from racing.race.runtime import DEFAULT_RACE_RANDOM_SEED
+from racing.track.procedural import TRACK_ID_PROCEDURAL
+from racing.track.world import TRACK_ID_MUGELLO_SHORT, track_layout_ids
 
 
 def parse_size(value: str) -> tuple[int, int]:
@@ -31,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frames", type=int, default=12)
     parser.add_argument("--size", type=parse_size, default=(1280, 720))
     parser.add_argument("--team-color", type=parse_color_rgba, default=DEFAULT_FORMULA_TEAM_COLOR)
+    parser.add_argument("--seed", type=int, default=DEFAULT_RACE_RANDOM_SEED)
+    parser.add_argument("--track", choices=(*track_layout_ids(), TRACK_ID_PROCEDURAL), default=TRACK_ID_MUGELLO_SHORT)
+    parser.add_argument("--track-seed", type=int)
     parser.add_argument("--top-down-center", type=parse_xz)
     parser.add_argument("--top-down-height", type=float, default=2.5)
     parser.add_argument("--top-down-fov", type=float, default=8.0)
@@ -56,6 +62,9 @@ def main() -> None:
                 development_mode=True,
                 vsync=False,
                 team_color=args.team_color,
+                random_seed=args.seed,
+                track_id=args.track,
+                track_seed=args.track_seed,
             )
         ),
     )
