@@ -1,307 +1,228 @@
-# Building the Geometry Expert
+# Leaderboard Expert and Imitation Learning
 
-This guide explains the first rule-based expert controller in this project. It
-assumes you have not built a racing controller before.
+The current expert is
+[`src/controllers/leaderboard_expert.py`](src/controllers/leaderboard_expert.py).
+It uses public sensors to carry speed through corners, brake when needed, and
+resume acceleration without unnecessarily stopping. It is the strongest
+measured expert in this project's recent solo trials, and a starting point for
+imitation learning. It has not been established as an optimal controller or
+validated across every recovery situation.
 
-The controller is in
-[`src/controllers/geometry_expert.py`](src/controllers/geometry_expert.py). Its
-goal is reliability rather than maximum racing speed. Later, its decisions can
-be recorded as demonstration labels for an imitation-learning model.
+The superseded expert implementations and their dedicated tests have been
+removed. `crash_fast.py` remains the minimal student starter template. This
+guide keeps its existing filename so links to it continue to work.
 
-A faster, separately tunable version is in
-[`src/controllers/geometry_expert_fast.py`](src/controllers/geometry_expert_fast.py).
-It retains the original controller as a reliability baseline instead of
-replacing it.
+## Run and test the expert
 
-## 1. Understand the controller loop
+Follow [GETTING_STARTED.md](GETTING_STARTED.md) to install the project, then run:
 
-The simulator calls the controller 60 times per simulated second. On every
-call, it supplies a `RobotSensors` snapshot. The controller must return exactly
-one `RobotCommand` containing:
+```bash
+uv run racing --seed 110 --student-module controllers.leaderboard_expert
+```
 
-- `throttle`: `-1.0` for reverse through `1.0` for forward
-- `steer`: `-1.0` for full left through `1.0` for full right
+Try other deterministic starting positions:
 
-The expert uses a `Controller` class and `create_controller()` rather than a
-single `control()` function. This gives every car fresh recovery state at the
-start of a race, as required by the packaging guidance in `README.md`.
+```bash
+uv run racing --seed 2026 --student-module controllers.leaderboard_expert
+uv run racing --seed 7 --student-module controllers.leaderboard_expert
+uv run racing --seed 42 --student-module controllers.leaderboard_expert
+```
 
-## 2. Choose public observations
+These seeds vary starts on the existing track; they do not generate different
+track layouts. Reuse the same seeds and simulator settings for fair comparisons.
 
-The expert deliberately reads only documented public sensors:
+Run the controller and actuator regression tests with:
 
-| Sensor | How the expert uses it |
+```bash
+uv run pytest tests/test_leaderboard_expert.py tests/test_physics.py
+```
+
+The tests cover acceleration, corner braking, low-speed behavior, recovery,
+command bounds, and release of the simulator's braking state while still moving.
+
+## Observations and controller state
+
+At the usual 60 Hz simulation rate, the controller receives a `RobotSensors`
+snapshot and returns `RobotCommand(throttle, steer)`. Both fields are bounded
+to `[-1.0, 1.0]`. Negative steering turns left; positive steering turns right.
+Signed throttle requests reverse or forward drive, with braking when the
+request opposes current motion. Exactly zero throttle coasts.
+
+| Public observation | Purpose |
 | --- | --- |
-| `camera.center_offset_m` | Steers toward the track center |
-| `camera.heading_error_degrees` | Turns to match the track direction |
-| `camera.lookahead_offsets_m` | Anticipates the next bend |
-| `odometry.speed_mps` | Accelerates or brakes toward a target speed |
-| `wall_lidar` | Keeps space from walls and detects a blocked path |
-| `contact.wall` | Starts recovery after touching a barrier |
+| Camera heading error and lookahead offsets | Anticipate turn direction and severity |
+| Camera center offset | Correct large displacement from the centerline |
+| Camera visibility | Select fallback steering and speed control |
+| IMU yaw rate | Dampen excessive rotation |
+| Signed odometry speed | Choose acceleration, braking, or recovery |
+| Wall LiDAR | Avoid boundaries and anticipate a wall ahead |
+| Full LiDAR | Detect nearer obstacles beyond wall-only information |
+| Wall contact | Help identify a low-speed obstruction |
 
-This matters for future imitation learning: the student model can receive the
-same observations that caused the expert's command. The expert does not import
-the private physics world, official lap progress, or exact global track map.
+Distance calculations cap LiDAR readings at 80 m and treat non-finite readings
+as that cap. The controller does not access the private physics world, official
+lap progress, or a global track map.
 
-## 3. Compute steering
+`create_controller()` gives each car a fresh `Controller` instance. It remembers
+previous steering, previous emitted throttle, recovery ticks remaining, and
+recovery steering. This history matters when learning to imitate its actions.
 
-The normal steering command combines four small corrections:
+## Steering and corner speed
 
-1. **Center correction:** move toward the centerline.
-2. **Heading correction:** point in the local direction of the track.
-3. **Lookahead correction:** begin turning toward upcoming centerline points.
-4. **Wall correction:** move away from a close side wall.
+Steering combines heading error, near/middle/far lookahead, yaw damping, and
+repulsion from close side and diagonal walls. Center correction begins only
+beyond 2 m of displacement. Normal steering is bounded to `[-1.0, 1.0]`, with
+a maximum change of 0.14 per tick to limit rapid left/right oscillation.
 
-These signals share the same sign convention: negative means left and positive
-means right. Their sum is clamped to `[-0.9, 0.9]`, leaving the controller
-responsive without using full steering during ordinary driving.
+The bend score is the absolute far-to-near lookahead difference plus 0.45 times
+the absolute middle-to-near difference. The first matching phase supplies the
+normal target speed:
 
-The numerical multipliers in the source are tuning parameters, not universal
-constants. They express how strongly each observation influences steering.
+| Phase | Bend score | Absolute heading error | Target speed |
+| --- | ---: | ---: | ---: |
+| Clear straight | < 1.2 | < 9 degrees | 38 m/s |
+| Gentle bend | < 3.2 | < 18 degrees | 36 m/s |
+| Medium bend | < 6.5 | < 32 degrees | 31 m/s |
+| Severe bend | Otherwise | Otherwise | 23 m/s |
 
-## 4. Select a safe speed
+A front wall within `max(3.5, speed_mps * 0.42)` meters lowers the target using
+front clearance, bounded between 6 and 18 m/s. An obstacle within 5 m that is
+more than 0.25 m nearer than the wall reading caps the target at 12 m/s.
 
-The expert starts with a maximum target speed of 4.4 m/s. It lowers that target
-when:
+The controller requests full acceleration when more than 1 m/s below target,
+full braking when more than 1 m/s above target, and proportional throttle
+between those thresholds. These are heuristic targets, not a proven optimal
+racing line or a dedicated drift planner.
 
-- the car has a large heading error;
-- the car is far from the centerline;
-- the near and far lookahead offsets indicate a bend; or
-- the front wall reading is becoming short.
+## Brake release and recovery
 
-It then compares target speed with measured speed. A positive error produces
-forward throttle. A sufficiently negative error produces negative throttle,
-which brakes a forward-moving car before requesting reverse, as described in
-the project README.
+Negative throttle arms the simulator's brake-before-reverse state. Switching
+directly to positive throttle can leave braking active until the car nearly
+stops. Raising the target speed alone does not clear this state.
 
-This target-speed design is easier to understand and tune than assigning a
-fixed throttle to every situation.
+The expert therefore inserts one tick of **exactly zero throttle** whenever
+its requested command changes from negative to positive. This clears the
+pending direction change. The next tick can accelerate while the car is still
+moving, with steering preserved during the coast tick.
 
-## 5. Recover from walls
+The 6 m/s rolling target also limits normal wall-related slowing. If camera
+visibility is lost, the expert steers toward the more open side, requests
+gentle braking at or above 6 m/s, and requests acceleration below that speed.
+The same brake-release wrapper applies to this fallback.
 
-A one-tick reverse command is often too short to free a stuck car. The expert
-therefore enters recovery for 42 ticks (about 0.7 simulated seconds) when it
-touches a wall or sees a wall less than 0.65 m ahead.
+Reverse recovery starts only when absolute speed is below 2 m/s and either
+wall contact is present or the front wall is less than 0.35 m away. It lasts
+28 ticks, about 0.47 seconds at 60 Hz, with steering chosen from available
+left/right space. Contact during an active recovery does not reset its timer.
+Another recovery can start after the timer expires if the obstruction remains.
 
-At recovery start, it compares open space on the left and right, chooses a turn
-direction, and keeps a moderate reverse command for the entire recovery. The
-state is bounded: it cannot grow indefinitely, and a new controller starts with
-no old race history.
+These rules address unnecessary braking stops; they do not guarantee a
+minimum physical speed after collisions, loss of traction, or every bad pose.
 
-This behavior is particularly useful for a future demonstration dataset because
-it supplies examples of mistakes and recoveries, not only ideal centerline
-driving.
+## Latest measured results
 
-## 6. Handle LiDAR no-hit readings
+The following local measurements used the autograder worker's solo trial loop
+with an in-process controller, 30 simulated seconds at 60 Hz, and no marshal
+recovery. They include the neutral-tick brake-release fix. They are local
+physics results, not a new Gradescope submission or isolated-worker validation.
 
-The sensor reference documents `math.inf` as a valid LiDAR no-hit value. The
-expert converts it to a finite 30 m cap before doing arithmetic. This prevents
-expressions such as infinity minus infinity and follows the same preprocessing
-principle that a future ML model should use.
+| Metric | Seed 110 | Seed 2026 |
+| --- | ---: | ---: |
+| Forward progress | 656.613 m | 680.625 m |
+| Partial laps | 3.5868 | 3.7179 |
+| Completed laps | 3 | 3 |
+| First lap | 8.850 s | 8.817 s |
+| Best completed lap | 8.000 s | 8.000 s |
+| Top speed | 37.588 m/s | 37.589 m/s |
+| Damage | 0% | 0% |
+| Wall-contact time | 0 s | 0 s |
+| Near-stop episodes after startup, without wall contact | 0 | 0 |
 
-## 7. Run the expert
+The diagnostic counted near-stop episodes as transitions into an absolute
+speed below 0.5 m/s with no wall contact, after tick 120. Before the brake-release
+fix, the matched trials each had nine such episodes and traveled 502.487 m and
+521.487 m. Progress increased by about 31% on each seed after the fix.
 
-Install the project as described in `GETTING_STARTED.md`, then run:
+These two starts establish a useful baseline, not universal reliability.
+Earlier speed-tuning conclusions made before the braking fix should be
+retested before choosing new targets.
 
-```bash
-uv run racing \
-  --seed 110 \
-  --student-module controllers.geometry_expert
-```
+## Continue with imitation learning
 
-Try several seeds because each seed selects a deterministic starting position:
+The steps below are proposed work. The repository currently records human
+demonstrations but does not provide an automated expert dataset collector or
+an imitation-learning training pipeline.
 
-```bash
-uv run racing --seed 7 --student-module controllers.geometry_expert
-uv run racing --seed 42 --student-module controllers.geometry_expert
-uv run racing --seed 110 --student-module controllers.geometry_expert
-```
+### 1. Freeze and evaluate the teacher
 
-Reusing a seed makes before-and-after tuning comparisons fair.
+Save the expert source revision and simulator configuration with each dataset.
+Test longer runs, held-out starting seeds, and deliberately perturbed positions,
+headings, and corner-entry speeds. Add traffic scenarios if the learner will
+race against other cars. Developing these perturbation scenarios is part of
+the evaluation work; the seed option alone does not supply them.
 
-To compare it with another automated controller over several headless races:
+Measure progress, lap times, damage, contact time, survival, and near-stop
+episodes after startup. Prioritize useful recovery behavior before further
+increasing top speed: a learner will visit states that clean expert laps miss.
 
-```bash
-uv run racing h2h \
-  --challenger-module controllers.geometry_expert \
-  --incumbent-module controllers.crash_fast \
-  --seed 110 \
-  --races 7 \
-  --round-seconds 30
-```
+### 2. Record expert trajectories
 
-Head-to-head mode includes other cars, so it tests more than basic solo track
-following. Watch a race when diagnosing behavior; use repeated headless races
-when collecting comparative evidence.
-
-## 8. Test and tune responsibly
-
-The focused tests in `tests/test_geometry_expert.py` check that the controller:
-
-- turns toward right-hand track geometry;
-- requests less throttle for a sharp bend;
-- continues recovery after contact ends; and
-- always returns commands within the documented ranges.
-
-Run them with:
-
-```bash
-uv run pytest tests/test_geometry_expert.py
-```
-
-When tuning, change one group of constants at a time and rerun the same seeds.
-Track at least survival time, distance traveled, damage, wall contacts, and
-whether the car becomes stuck. A future "expert" should first be consistent and
-recoverable; speed can be improved after those properties are dependable.
-
-## 9. Prepare for imitation learning later
-
-The next project stage can record pairs of:
+Build an automated collector around the headless simulation loop. Record the
+observation before applying its corresponding action, preserving every 60 Hz
+tick, including neutral brake-release ticks:
 
 ```text
-(public RobotSensors snapshot, expert RobotCommand)
+episode ID, seed, tick, public sensors,
+previous applied action, expert action, applied action
 ```
 
-across many seeded starts. Keep complete runs together when splitting training
-and evaluation data. Do not randomly split adjacent 60 Hz ticks, because nearby
-ticks are almost duplicates and would make test results look better than real
-generalization.
+Keep episode outcomes and version metadata alongside these records. Separate
+expert labels from applied actions so the format can later support learner
+rollouts and intervention. They coincide during ordinary expert-only collection.
 
-## 10. Use the faster expert
+Reuse `robot_sensors_to_dict` and `robot_command_to_dict` from
+[`src/racing/game/recording.py`](src/racing/game/recording.py), but give automated
+records their own record type. The existing `--record-human` flag is restricted
+to manual driving and cannot be combined with `--student-module`.
 
-Run the faster variant with:
+### 3. Train a history-aware behavioral clone
 
-```bash
-uv run racing \
-  --seed 110 \
-  --student-module controllers.geometry_expert_fast
-```
+A model given only the current sensor snapshot cannot always reproduce this
+stateful teacher. Start with a small recurrent model receiving relevant public
+sensors and the previous applied action. Reset its memory at episode boundaries.
+Split complete episodes and scenario groups into training, validation, and test
+sets; do not randomly split neighboring ticks.
 
-The faster controller preserves the same public-sensor and stateful-recovery
-design, but prioritizes leaderboard progress in its normal driving behavior:
+Use identical observation preprocessing in training and deployment. JSON
+recordings encode LiDAR no-hit values as `null`; convert these to finite capped
+distances and validity indicators before model input. Fit any normalization
+statistics using training data only.
 
-- maximum target speed rises from 4.4 m/s to 9.6 m/s;
-- it uses the full `1.0` forward command on a clear straight;
-- it can use strong negative throttle to brake late for a corner;
-- center offsets smaller than 1.15 m do not reduce speed by themselves;
-- lookahead bend, heading error, steering demand, and front-wall distance cause
-  anticipatory braking; and
-- steering and side-wall corrections are slightly stronger at higher speed.
+Train steering and throttle prediction on sequences that include corners,
+brake releases, and recoveries, rather than allowing full-throttle straights
+to dominate sampling. Keep the exact neutral-tick release rule in a deterministic
+output wrapper: a predicted throttle of `0.001` is not equivalent to `0.0` for
+the simulator's pending braking state. Log requested and applied commands, and
+evaluate the model together with this wrapper.
 
-These changes are intended to increase speed without deleting the dependable
-expert. Keep both versions so every future tuning change can be evaluated
-against the same conservative baseline.
+### 4. Evaluate autonomous driving and collect corrections
 
-In a deterministic 15-race, 45-second comparison against the reliable expert,
-the fast expert traveled 2,905.5 m compared with 1,317.9 m—about 120% farther.
-It completed one lap in every race, reached 9.4 m/s, and recorded 0% average
-damage, no eliminations, and zero wall-contact time. Both controllers received
-five marshal resets after symmetric car-contact events.
+Compare the learner and teacher on the same held-out scenarios. Prediction
+error on recorded actions is only part of validation; let the learner drive
+and measure its resulting race performance.
 
-An additional 10-race evaluation with seed `2026` produced 10 lap completions,
-a 42.75-second best lap, 0% damage, no wall contact, no eliminations, and one
-marshal reset. These results demonstrate a substantial improvement for the
-tested starts, but they are not proof for every possible state. Continue
-evaluating new seed sets before treating the controller as a final
-demonstration source or leaderboard submission.
+Once basic cloning works, use DAgger: run the learner, query the expert on
+the states the learner encounters, aggregate those labeled examples with the
+dataset, and retrain. This addresses the changing observation distribution
+caused by the learner's own actions. See the
+[original DAgger paper](https://proceedings.mlr.press/v15/ross11a.html).
 
-## 11. Use the boundary-prioritized expert
+This expert requires special care when queried during learner rollouts. Its
+previous-action state must reflect actual applied actions rather than expert
+suggestions that were never executed. Define and test how recovery state is
+maintained as well; calling the existing controller as an independent shadow
+driver is not sufficient to guarantee consistent labels.
 
-For a leaderboard-oriented experiment that gives up strict centerline tracking,
-run:
-
-```bash
-uv run racing \
-  --seed 110 \
-  --student-module controllers.boundary_expert_fast
-```
-
-This is a separate controller in
-[`src/controllers/boundary_expert_fast.py`](src/controllers/boundary_expert_fast.py),
-so the two earlier experts remain available as baselines.
-
-The boundary expert uses camera heading and lookahead offsets to determine where
-the track turns, but ignores the first 1.7 m of center offset. Its hard driving
-constraints instead come from:
-
-- side and diagonal `wall_lidar` beams, which produce progressively stronger
-  steering only near a boundary;
-- the front wall beam, which causes late braking only when clearance becomes
-  genuinely short;
-- full LiDAR, which distinguishes cars and blockers from the wall-only reading;
-  and
-- contact-triggered bounded recovery, retained as a last resort.
-
-It targets 10.7 m/s and keeps at least a 6.6 m/s target through severe geometry
-unless the front clearance requires braking. This is intentionally a more
-aggressive expert: progress and lap time take priority over holding a neat
-centerline.
-
-In a matched 15-race comparison, it produced a 21.87-second best lap versus
-41.93 seconds for `geometry_expert_fast`, completed 25 laps versus 15, and
-traveled 5,523.6 m versus 2,924.3 m. That is approximately 1.9 times the lap
-throughput and distance, while both controllers recorded 0% damage, no wall
-contact, and no eliminations in the test.
-
-On a separate 10-race sequence using seed `2026`, the boundary expert completed
-20 laps, recorded a 21.65-second best lap, reached 10.6 m/s, and had zero
-damage, wall contact, eliminations, or marshal resets. The vehicle's observed
-top speed is around 10–11 m/s, so a literal two- or three-times increase over
-the previous 9.4 m/s top speed is not physically available. The roughly 1.9x
-gain comes from maintaining high speed through the lap instead.
-
-These measurements cover deterministic simulator starts, not every possible
-opponent interaction or perturbed pose. Treat this controller as the fast-data
-expert and retain the earlier controllers as fallbacks and comparison points.
-
-## 12. Use the phase-based leaderboard attempt
-
-The leaderboard headers show that the leading cars reach roughly 60–78 mph.
-The earlier boundary expert was artificially limited to about 24 mph, rather
-than being limited by the simulator. The more aggressive attempt is in
-[`src/controllers/leaderboard_expert.py`](src/controllers/leaderboard_expert.py).
-
-Run it with:
-
-```bash
-uv run racing \
-  --seed 110 \
-  --student-module controllers.leaderboard_expert
-```
-
-This controller uses four explicit speed phases:
-
-| Geometry phase | Target speed |
-| --- | ---: |
-| Clear straight | 38 m/s (85.0 mph) |
-| Gentle bend | 36 m/s (80.5 mph) |
-| Medium bend | 31 m/s (69.3 mph) |
-| Severe bend | 23 m/s (51.4 mph) |
-
-It applies full forward or reverse throttle outside a narrow target-speed band.
-Steering emphasizes heading and future geometry, ignores the first 2 m of
-center displacement, damps excessive yaw, and limits how quickly the steering
-command can reverse direction. A speed-dependent front-wall horizon can
-override the phase target.
-
-The values above are empirically important. Increasing the final three targets
-to 37, 33, and 25 m/s caused persistent wall contact on the official seeds.
-That sharp failure boundary is why the checked-in attempt uses the fastest
-configuration observed to finish both official trials cleanly.
-
-Exact local autograder-worker results for the retained tune are:
-
-| Metric | Seed 110 | Seed 2026 | Average |
-| --- | ---: | ---: | ---: |
-| Partial laps | 2.7448 | 2.8486 | 2.7967 |
-| First lap | 11.217 s | 11.017 s | 11.117 s |
-| Best lap | 10.200 s | 10.167 s | 10.183 s |
-| Top speed | 37.591 m/s | 37.591 m/s | 37.591 m/s |
-| Damage | 0% | 0% | 0% |
-| Wall contact | 0 s | 0 s | 0 s |
-
-This more than doubles the earlier submission's approximately 1.34 partial
-laps and raises top speed from about 23.6 mph to 84.1 mph. It is still an
-experimental leaderboard controller: the current leaders' shorter lap times
-show that better corner-specific steering or an automatically optimized speed
-profile remains necessary.
+The next practical milestone is an automated collector, a small cloning model,
+and repeatable autonomous evaluation. Use the observed failures to decide
+whether to improve the teacher, dataset coverage, or learner architecture.

@@ -14,8 +14,8 @@ Start here:
 
 - [Getting Started](GETTING_STARTED.md): installation, manual driving, and your
   first controller
-- [Geometry Expert Guide](GEOMETRY_EXPERT.md): reliable, boundary-focused, and
-  phase-based leaderboard controller experiments
+- [Leaderboard Expert Guide](GEOMETRY_EXPERT.md): current controller behavior,
+  measured performance, and next steps for imitation learning
 - [Sensor Reference](SENSORS.md): every input field, type, unit, range, and
   sentinel value
 - [Autograder Guide](autograder/README.md): building and operating the isolated

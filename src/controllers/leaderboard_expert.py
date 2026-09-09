@@ -15,6 +15,9 @@ from racing import RobotCommand, RobotSensors
 RACING_NAME: str = "Leaderboard Expert"
 RACING_COLOR: str = "#FF1744"
 
+# Keep normal cornering moving; reversing is reserved for getting unstuck.
+MIN_ROLLING_SPEED_MPS = 6.0
+
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(value, maximum))
@@ -31,19 +34,31 @@ class Controller:
         self._previous_steer = 0.0
         self._recovery_ticks_remaining = 0
         self._recovery_steer = 0.0
+        self._previous_throttle = 0.0
 
     def __call__(self, sensors: RobotSensors) -> RobotCommand:
+        command = self._race_command(sensors)
+        # Negative throttle arms the simulator's brake-before-reverse state.
+        # A direct switch to positive throttle keeps braking until near zero;
+        # one neutral tick clears that state so acceleration can resume rolling.
+        if self._previous_throttle < 0.0 and command.throttle > 0.0:
+            command = RobotCommand(throttle=0.0, steer=command.steer)
+        self._previous_throttle = command.throttle
+        return command
+
+    def _race_command(self, sensors: RobotSensors) -> RobotCommand:
         walls = sensors.wall_lidar
         front_wall_m = _finite_distance(walls.front_m)
 
-        if sensors.contact.wall > 0.0 or front_wall_m < 0.35:
+        speed_mps = sensors.odometry.speed_mps
+        if (
+            self._recovery_ticks_remaining == 0
+            and abs(speed_mps) < 2.0
+            and (sensors.contact.wall > 0.0 or front_wall_m < 0.35)
+        ):
             self._recovery_ticks_remaining = 28
-            left_space = _finite_distance(walls.left_m) + _finite_distance(
-                walls.front_left_m
-            )
-            right_space = _finite_distance(walls.right_m) + _finite_distance(
-                walls.front_right_m
-            )
+            left_space = _finite_distance(walls.left_m) + _finite_distance(walls.front_left_m)
+            right_space = _finite_distance(walls.right_m) + _finite_distance(walls.front_right_m)
             self._recovery_steer = -0.9 if left_space > right_space else 0.9
 
         if self._recovery_ticks_remaining > 0:
@@ -54,7 +69,8 @@ class Controller:
         if not sensors.camera.visible:
             open_side = -0.4 if walls.left_m > walls.right_m else 0.4
             self._previous_steer = open_side
-            return RobotCommand(throttle=-0.2, steer=open_side)
+            throttle = 1.0 if speed_mps < MIN_ROLLING_SPEED_MPS else -0.2
+            return RobotCommand(throttle=throttle, steer=open_side)
 
         camera = sensors.camera
         offsets = camera.lookahead_offsets_m
@@ -72,9 +88,7 @@ class Controller:
         heading_term = camera.heading_error_degrees / 42.0
         lookahead_term = 0.065 * near_offset + 0.057 * middle_offset + 0.05 * far_offset
         excess_offset_m = max(0.0, abs(camera.center_offset_m) - 2.0)
-        center_term = (
-            0.08 * excess_offset_m * (1.0 if camera.center_offset_m > 0.0 else -1.0)
-        )
+        center_term = 0.08 * excess_offset_m * (1.0 if camera.center_offset_m > 0.0 else -1.0)
 
         # High-speed yaw damping limits fishtailing without reducing the initial
         # steering request that begins a corner.
@@ -97,14 +111,10 @@ class Controller:
         )
         # Bound the per-tick change to prevent rapid left/right corrections at
         # high speed, while still allowing a full transition in about 0.2 s.
-        steer = _clamp(
-            raw_steer, self._previous_steer - 0.14, self._previous_steer + 0.14
-        )
+        steer = _clamp(raw_steer, self._previous_steer - 0.14, self._previous_steer + 0.14)
         self._previous_steer = steer
 
-        bend_score = abs(far_offset - near_offset) + 0.45 * abs(
-            middle_offset - near_offset
-        )
+        bend_score = abs(far_offset - near_offset) + 0.45 * abs(middle_offset - near_offset)
         heading_error = abs(camera.heading_error_degrees)
 
         # Explicit phases make acceleration and braking decisive. The thresholds
@@ -123,7 +133,8 @@ class Controller:
         braking_horizon_m = max(3.5, sensors.odometry.speed_mps * 0.42)
         if front_wall_m < braking_horizon_m:
             target_speed_mps = min(
-                target_speed_mps, _clamp(2.5 * (front_wall_m - 0.35), 3.0, 18.0)
+                target_speed_mps,
+                _clamp(2.5 * (front_wall_m - 0.35), MIN_ROLLING_SPEED_MPS, 18.0),
             )
 
         obstacle_front_m = _finite_distance(sensors.lidar.front_m)
