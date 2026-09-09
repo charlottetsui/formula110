@@ -1,5 +1,11 @@
 # Experiment evidence convention
 
+The combined branch also stores imitation runs here. Those runs are indexed in
+[`MODEL_TRAINING.md`](../MODEL_TRAINING.md), use `config.json`, `metrics.csv`,
+`eval_results.json`, `policy.npz`, `actor.pt`, and `notes.md`, and retain dataset
+and collection metadata alongside race evidence. Raw datasets stay under
+ignored `artifacts/`. The original SAC-specific conventions follow below.
+
 Every SAC training or evaluation run that's worth citing in
 [`docs/lab_notebook.md`](../docs/lab_notebook.md) gets its own directory
 here:
@@ -22,8 +28,8 @@ Conventions:
   (`HeadToHeadTeamRaceStats` / `HeadToHeadResult`), not just the training
   proxy reward — see `docs/rl_design.md` §2.3 on why both are tracked.
 - Name the slug after what changed (e.g. `2026-09-03_wall-penalty-2x`),
-  not the algorithm — this directory is SAC-only, so the algorithm name
-  isn't distinguishing information.
+  not just the algorithm. Combined imitation experiments can use a versioned
+  `imitation-vN` slug while their notes identify what changed.
 - Large checkpoint binaries: keep only the best/most recent checkpoint per
   run if size becomes a problem; do not commit training-only datasets or
   virtualenvs here (same rule as the top-level packaging contract in

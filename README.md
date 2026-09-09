@@ -18,6 +18,8 @@ Start here:
   measured performance, and next steps for imitation learning
 - [Sensor Reference](SENSORS.md): every input field, type, unit, range, and
   sentinel value
+- [Model Training](MODEL_TRAINING.md): expert demonstrations, imitation training,
+  the first trained controller, evaluation results, and the path to SAC refinement
 - [Autograder Guide](autograder/README.md): building and operating the isolated
   Gradescope evaluator
 

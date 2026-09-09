@@ -1,0 +1,34 @@
+{
+  "dataset": "/Users/lucygood/formula110/artifacts/imitation-v1-data/dataset.npz",
+  "dataset_sha256": "5ce71f184b1f491204b153ce1edf4f44592f2728fb00d486f4b80790be073339",
+  "validation_seeds": [
+    2001,
+    2002
+  ],
+  "training_seeds": [
+    1001,
+    1002,
+    1003,
+    1004,
+    1005,
+    1006,
+    1007,
+    1008,
+    1009,
+    1010
+  ],
+  "epochs": 80,
+  "seed": 0,
+  "hidden_size": 128,
+  "observation_dim": 336,
+  "feature_version": 1,
+  "best_validation_weighted_mse": 0.045694246888160706,
+  "train_samples": 36020,
+  "validation_samples": 7204,
+  "throttle_group_counts": [
+    5738,
+    10265,
+    20017
+  ],
+  "selection": "minimum validation throttle MSE + 4 * steer MSE"
+}

@@ -149,9 +149,12 @@ retested before choosing new targets.
 
 ## Continue with imitation learning
 
-The steps below are proposed work. The repository currently records human
-demonstrations but does not provide an automated expert dataset collector or
-an imitation-learning training pipeline.
+The combined branch now includes an automated expert collector, a small
+history-aware cloning model, and autonomous evaluation. See
+[Model Training](MODEL_TRAINING.md) for commands, the first trained artifact,
+measured comparisons, and remaining work. The sections below explain the
+original plan; the implemented first model uses bounded frame history instead
+of recurrence, and correction/DAgger collection is still proposed work.
 
 ### 1. Freeze and evaluate the teacher
 
