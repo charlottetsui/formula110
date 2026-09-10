@@ -21,10 +21,19 @@ class ReplayBatch:
     rewards: np.ndarray
     next_observations: np.ndarray
     dones: np.ndarray
+    discounts: np.ndarray
 
 
 class ReplayBuffer:
-    """Circular, preallocated replay buffer for continuous observations/actions."""
+    """Circular, preallocated replay buffer for continuous observations/actions.
+
+    Each transition carries its own bootstrap ``discount`` (rather than a
+    single scalar gamma shared by every sample) so that n-step returns work:
+    a transition spanning n real ticks bootstraps with `gamma**n`, and a
+    transition truncated early by episode termination (fewer than n ticks
+    available) bootstraps with `gamma**actual_n` instead -- see
+    `training.controller`'s n-step windowing for how these are produced.
+    """
 
     def __init__(self, *, capacity: int, observation_dim: int, action_dim: int) -> None:
         if capacity < 1:
@@ -35,6 +44,7 @@ class ReplayBuffer:
         self._rewards = np.zeros((capacity,), dtype=np.float32)
         self._next_observations = np.zeros((capacity, observation_dim), dtype=np.float32)
         self._dones = np.zeros((capacity,), dtype=np.float32)
+        self._discounts = np.zeros((capacity,), dtype=np.float32)
         self._write_index = 0
         self._size = 0
 
@@ -52,6 +62,8 @@ class ReplayBuffer:
         reward: float,
         next_observation: np.ndarray,
         done: bool,
+        *,
+        discount: float,
     ) -> None:
         index = self._write_index
         self._observations[index] = observation
@@ -59,6 +71,7 @@ class ReplayBuffer:
         self._rewards[index] = reward
         self._next_observations[index] = next_observation
         self._dones[index] = 1.0 if done else 0.0
+        self._discounts[index] = discount
         self._write_index = (index + 1) % self._capacity
         self._size = min(self._size + 1, self._capacity)
 
@@ -74,4 +87,5 @@ class ReplayBuffer:
             rewards=self._rewards[indices],
             next_observations=self._next_observations[indices],
             dones=self._dones[indices],
+            discounts=self._discounts[indices],
         )

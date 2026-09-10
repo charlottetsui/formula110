@@ -2253,3 +2253,1842 @@ directly rather than assuming the old finding still holds.
    `WEIGHT_CENTER_OFFSET` alongside this change -- it currently penalizes
    any lateral deviation from centerline uniformly, which would suppress
    a real racing line (let alone a drift) even if it's genuinely faster.
+
+---
+
+## 2026-09-03
+
+**Participants and contributions:** Charlotte Tsui -- asked what the
+best approach would be for a full restart-and-retrain, optimizing for
+speed and safety and open to a different mechanism such as drifting;
+after hearing the recommendation, said to set it up as the next
+experiment. Claude Code (AI agent) -- reviewed the full causal-test
+history, recommended against a true from-scratch restart, designed and
+ran the experiment, caught and fixed its own evaluation mistake, and
+documented the (negative) result.
+
+**Question or objective:** If restarting SAC training from scratch,
+what's the highest-leverage single next step to improve speed while
+keeping safety, and possibly enable drift-style cornering?
+
+**What we investigated or changed:** First, reviewed
+`docs/rl_design.md` §6's full history (17 prior causal tests) rather than
+proposing something new unprompted. Recommended *not* a literal restart:
+keep seed `110` (the only seed that avoided the `909`-style "do nothing"
+dead end) and the current best reward (`2026-09-02_uncapped-speed-
+scaled-risk-seed110` — uncapped `forward_progress_m` +
+`WALL_PROXIMITY_SPEED_SCALE_MPS`, the only prior attempt that gained
+speed without losing safety), and test the one lever flagged in that
+run's own notes but not yet tried: loosening `WEIGHT_CENTER_OFFSET` so
+the policy has room for a wider racing line through corners. User agreed
+and asked to proceed.
+
+Implemented: `WEIGHT_CENTER_OFFSET` 0.3 -> 0.15 in
+`src/training/reward.py` (a deliberate half-step, not a full return to
+the old 0.05 that caused the 2026-09-01 off-track regression this weight
+originally fixed), everything else identical to the reference (seed 110,
+races=40, round_seconds=120, buffer_capacity=800000), trained from
+scratch via `scripts/train_sac.py`.
+
+**Evidence:**
+- Sources or documentation: re-read `docs/rl_design.md` §6 in full and
+  `experiments/2026-09-02_uncapped-speed-scaled-risk-seed110/notes.md`
+  before proposing the change, to avoid re-deriving or contradicting
+  already-recorded findings (per this file's step 1).
+- AI-agent assistance: Claude Code ran
+  `ruff check`/`ruff format --check`/`pyright`/`pytest -q` (159 passed)
+  before training. Launched training in the background and picked it up
+  automatically on completion. **Caught its own mistake**: the first
+  training invocation omitted `--eval-round-seconds 120`, so the initial
+  evaluation silently ran at `eval_sac`'s 20s default instead of the
+  reference's 120s -- noticed by diffing the saved `config.yaml` against
+  the reference's before reporting any numbers (rather than reporting
+  the 20s-round numbers, which looked like extreme regressions purely
+  from the shorter round, e.g. 41-122m vs. the reference's hundreds of
+  meters). Fixed by re-evaluating the same saved checkpoint via
+  `scripts/eval_sac.py --eval-round-seconds 120` (no retraining needed --
+  training itself had used the correct 120s round throughout). Computed
+  precise per-metric averages directly from `eval_results.json` (not just
+  the printed per-seed summary lines) to build the comparison table.
+- Commits or code: `src/training/reward.py`
+  (`WEIGHT_CENTER_OFFSET` tried at 0.15, reverted to 0.3, comment
+  records both), `docs/rl_design.md` §6 (causal test 18).
+- Experiment output:
+  `experiments/2026-09-03_center-offset-half-seed110/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`, plus the mistaken `config_WRONG_20s.yaml` /
+  `eval_results_WRONG_20s.json` kept for the record, unused in any
+  comparison).
+- Leaderboard result: n/a; not adopted.
+
+**What we observed:** A clear regression, not the hoped-for trade-off.
+Avg max speed **17.13 -> 8.80 m/s (-49%)**, avg laps **3.90 -> 1.00
+(-74%)**, avg best lap time **28.46s -> 78.80s (+177%)**, wins vs.
+`default_student_controller` **10/10 -> 3/10** (still 10/10 vs.
+`crash_fast`). Safety stayed essentially flat: damage 0.003 -> 0.006
+(still near-zero), off-track/wall-contact both still near-zero, 0/20
+eliminated both before and after. So loosening the centerline penalty
+did not trade safety for speed -- it just made the policy notably less
+competent while safety, already at floor, stayed at floor.
+
+**Decision and rationale:** Reverted `WEIGHT_CENTER_OFFSET` to `0.3`.
+Not adopting this checkpoint. `2026-09-02_uncapped-speed-scaled-risk-
+seed110` remains the reference/current best. Best-guess explanation:
+under the already-uncapped speed reward, a uniform per-tick centerline
+penalty was apparently doing real work keeping cornering deliberate, not
+merely suppressing a better line underneath it -- weakening it broadly
+(touching straights and safe cruising as much as corners) removed a
+signal the policy depended on rather than unlocking one. Same failure
+pattern as the steering-smoothness and idle-penalty attempts earlier
+this week: a plausible-sounding loosened constraint that backfires.
+Treating global `WEIGHT_CENTER_OFFSET` reduction as a dead end at this
+step size, same as `MAX_REWARDED_SPEED_MPS` tuning was treated after its
+three failed attempts.
+
+**Next steps:**
+1. **(recommended)** Treat `2026-09-02_uncapped-speed-scaled-risk-
+   seed110` as the practical best result for this track's remaining time
+   and shift to consolidation: broader seed testing beyond the fixed 5,
+   repackaging `controllers.race_faster` from this checkpoint (it still
+   packages the older races=20 checkpoint per the 2026-09-01 packaging
+   entries), and the `controllers.minimum_viable` module gap.
+2. If wider/drift-style cornering is still wanted, the next idea should
+   target corners specifically -- e.g. a term conditioned on
+   `camera.lookahead_offsets_m` curvature, or only relaxing the
+   centerline penalty when wall-proximity margin is large -- rather than
+   another global weight change that also touches straights and safe
+   cruising, which is what made this attempt backfire.
+3. Not yet tried: the `trajectory-bonus` (fixed, 2026-09-02) +
+   `resume-from` combination, refining an already-competent policy with
+   the best-known-trajectory bonus rather than learning both "how to
+   drive" and "beat your own record" from scratch at once. Still
+   deprioritized given the current focus, noted for completeness.
+
+---
+
+## 2026-09-07
+
+**Participants and contributions:** Charlotte Tsui -- asked what a better
+RL implementation could look like to produce a faster controller (rather
+than another reward-weight tweak), then directed implementing and testing
+n-step returns at n=3 against the current reference checkpoint. Claude
+Code (AI agent) -- explained the algorithmic idea and its bias/variance
+tradeoff at different n, implemented it, verified it against the existing
+test suite plus new tests, smoke-tested it on a real (tiny) headless
+race, then ran and analyzed the full causal test.
+
+**Question or objective:** Every prior speed-focused experiment (causal
+tests 9-18, 2026-09-01/09-02) changed the reward function or trained
+longer -- none changed the SAC algorithm itself. Does switching the
+critic's target from a 1-step TD backup to an n-step return (n=3) produce
+a faster and/or safer controller than the current best checkpoint,
+`2026-09-02_uncapped-speed-scaled-risk-seed110`?
+
+**What we investigated or changed:**
+
+- Explained the mechanism and its tradeoffs before writing any code:
+  1-step TD only lets a delayed penalty (e.g. `WEIGHT_TERMINAL_PENALTY`
+  for a crash several ticks after a risky action) reach the responsible
+  earlier states via many sequential Bellman backups -- exactly the
+  problem several 2026-09-01 causal tests (5, 6) worked around by raising
+  the penalty's *magnitude* rather than shortening that path. n-step
+  returns sum several real ticks of reward before bootstrapping, so a
+  crash's consequence reaches nearby earlier states directly, in one
+  update. Also walked through why n=3-5 is the standard starting range
+  (off-policy replay means older transitions' summed rewards become
+  increasingly stale relative to the current policy as n grows) rather
+  than jumping straight to a larger n.
+- Implemented n-step returns:
+  - `src/training/replay_buffer.py`: `ReplayBuffer.push`/`ReplayBatch`
+    gained a per-transition `discount` field (`gamma**actual_n`) instead
+    of relying on a single shared scalar gamma, since a window truncated
+    by early episode termination bootstraps over fewer than `n_step`
+    ticks.
+  - `src/training/sac.py`: `_update_critics`'s target now multiplies the
+    bootstrap term by the batch's per-sample `discounts` tensor instead
+    of `self.gamma`.
+  - `src/training/controller.py`: `TrainableController` now holds a
+    small per-car sliding window (`deque`) of raw 1-tick transitions;
+    once it reaches `n_step` ticks it emits one n-step transition to the
+    shared buffer and slides forward by one, or (if the episode
+    terminates mid-window) immediately flushes every pending window --
+    each remaining window emits its own transition with `done=True`,
+    which is why termination produces multiple pushes, not one.
+    `TrainingState` gained an `n_step: int` field (default 1).
+  - `scripts/train_sac.py`: new `--n-step` CLI flag (default 1, so no
+    existing run's behavior changes unless passed explicitly).
+- Added 11 new tests: `ReplayBuffer` discount storage and round-trip,
+  a critic-update test proving the target actually uses the per-sample
+  discount (two agents with identical init, updated on transitions
+  differing only in `discount`, must produce different critic losses),
+  and four `TrainableController` tests (n_step=1 reproduces the exact
+  prior single-push-per-tick behavior, n_step=3 holds transitions until
+  the window fills, the emitted n-step return is the correct discounted
+  sum with `discount == gamma**3`, and termination flushes every pending
+  window rather than just one).
+- Verified before running any real experiment: `ruff check` and
+  `pyright` (project's strict-mode config) both clean; `pytest -q`
+  (165 passed, up from 154 baseline); a tiny real headless race
+  (`--races 1 --round-seconds 5 --n-step 3 --eval-round-seconds 5`)
+  confirmed the plumbing runs against the actual simulator, not just
+  synthetic unit-test sensors, before committing to the full run.
+- Ran `scripts/train_sac.py --races 40 --round-seconds 120 --n-step 3
+  --buffer-capacity 800000 --eval-round-seconds 120 --seed 110`,
+  identical to the `2026-09-02_uncapped-speed-scaled-risk-seed110`
+  reference except `--n-step 3` (default 1) as the single changed
+  variable. Backgrounded (448.7s, exceeding the foreground timeout),
+  picked up via the completion notification.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output and the
+  reference checkpoint's known numbers.
+- AI-agent assistance: Claude Code did not report the headline
+  scored-distance numbers (768.1m -> 869.8m) as the whole story --
+  pulled full per-race detail (damage, off-track, wall-contact, max
+  speed, laps, best lap time) across all 20 evaluation races for both
+  this run and the reference before characterizing the result, the same
+  discipline applied to every experiment on this track. Also caught and
+  fixed a dating error before writing any evidence to disk: the
+  experiment directory and every new doc reference were initially
+  written as `2026-09-04` (a stale date carried over from context)
+  instead of the actual current date, `2026-09-07` -- caught by
+  cross-checking the environment's current-date context, renamed the
+  experiment directory and corrected every reference (`docs/rl_design.md`,
+  the experiment's own `notes.md`) before this entry was written, rather
+  than leaving a wrong date in permanent lab-notebook evidence.
+- Commits or code: `src/training/replay_buffer.py`, `src/training/sac.py`,
+  `src/training/controller.py`, `scripts/train_sac.py`,
+  `tests/test_training_replay_buffer.py`, `tests/test_training_sac.py`,
+  `tests/test_training_controller.py`, `docs/rl_design.md` (section 4
+  and section 6, causal test 19).
+- Experiment output: `experiments/2026-09-07_nstep3-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** n=3 beat the 1-step reference on every tracked
+metric except top speed, and even there the net effect (lap time) was
+still better:
+
+| | reference (1-step) | n-step=3 |
+| --- | --- | --- |
+| avg damage | 0.0028 | **0.0000** |
+| avg off-track | 0.082s | **0.000s** |
+| avg wall contact | 0.076s | **0.000s** |
+| avg max speed | 17.13 m/s | 14.73 m/s (-14%) |
+| avg laps | 3.90 | **4.00** |
+| avg best lap time | 28.46s | **25.06s (-12%)** |
+| avg scored distance | 768.1m | **869.8m** |
+| eliminated | 0/20 | 0/20 |
+| wins (both baselines) | 20/20 | 20/20 |
+
+Every safety metric reached exact zero across all 20 evaluation races (5
+seeds x 2 baselines, including the 4 held-out seeds), matching the best
+safety result seen anywhere on this track. Unlike every one of the eight
+prior speed-focused experiments (causal tests 9-18), this was not a
+trade-off in either direction: safety improved, lap time improved, and
+top speed alone went down. The most likely explanation, consistent with
+the n-step motivation, is less time lost to hesitation or an indirect
+line through corners rather than a pure straight-line speed change --
+not confirmed mechanistically, since headless stats alone can't
+distinguish that from other explanations; a live watch or per-tick
+sensor logging would be needed to check cornering technique directly.
+
+**Decision and rationale:** Adopted `2026-09-07_nstep3-seed110` as the
+new best/reference checkpoint -- it dominates the prior reference on
+every metric except top speed, where the net race-level effect is still
+an improvement. This is also, methodologically, the first change on this
+track to alter the RL algorithm itself rather than the reward or training
+budget, and it's the first speed-adjacent experiment all week to not cost
+something else in exchange. `docs/rl_design.md` section 4 updated in the
+same session (architecture change) per CLAUDE.md step 5, alongside
+section 6's causal-test log.
+
+**Next steps:**
+1. Watch the checkpoint live (`controllers.sac_candidate`, once pointed
+   at this checkpoint) to check qualitatively whether cornering technique
+   changed, per the open mechanism question above.
+2. Try `n=5` or `n=10` next now that `n=3` has shown a real, positive
+   effect -- not guaranteed to keep improving monotonically, since larger
+   n trades lower bias for higher variance and more off-policy staleness
+   in the replay-buffer rewards (discussed with Charlotte before
+   implementing).
+3. **Repackage `controllers.race_faster`** from this checkpoint -- still
+   open since the 2026-09-01 packaging entries; the packaged module ships
+   the much older races=20 checkpoint, now several strictly-better
+   checkpoints behind.
+4. Still open, unchanged from every prior entry: a genuine multi-training-
+   seed sweep at the current best config, to check whether n-step's
+   benefit (like every result on this track so far) is specific to seed
+   110 or general.
+5. Still open: the `controllers.minimum_viable` module gap from the
+   2026-09-01 packaging entries.
+
+---
+
+## 2026-09-07 (continued)
+
+**Participants and contributions:** Charlotte Tsui -- directed trying
+n=5 next and explicitly prioritized reducing hesitation over other goals;
+when the first attempt at a hesitation fix turned out to be a guess, asked
+to investigate the actual cause before writing more reward code. Claude
+Code (AI agent) -- ran n=5 (a regression), built a per-tick diagnostic
+that overturned its own initial hypothesis, disabled the now-unsupported
+fix it had already started, implemented the diagnosis-driven fix instead,
+and reported a mixed (not unambiguous) result including a self-found
+outlier.
+
+**Question or objective:** Does n=5 improve on n=3's result? Separately,
+and prioritized above further n-step tuning: what is actually causing the
+low-progress/"hesitation" time seen in every evaluation run so far, and
+can it be fixed directly rather than guessed at?
+
+**What we investigated or changed:**
+
+- **n=5 (causal test 20):** same seed/races/round-length/reward as
+  causal test 19, only `--n-step 3 -> 5`. Regression, not further
+  improvement (see "what we observed").
+- **First hesitation attempt (built, then superseded before testing):**
+  assumed steering oscillation was the cause (matching the standing
+  "reduce hesitation" refinement item) and implemented
+  `WEIGHT_STEERING_REVERSAL` in `src/training/reward.py` -- unlike the
+  already-failed `WEIGHT_STEERING_SMOOTHNESS` (penalizes raw yaw-rate
+  *magnitude* change, causal test 13, regressed badly because it
+  couldn't distinguish real cornering from wobble), this penalizes yaw-
+  rate *sign reversals* specifically, so a held turn (consistent sign,
+  changing magnitude) doesn't trigger it. Added 4 tests. Before running
+  it, Charlotte asked to investigate the actual cause first rather than
+  test another guess.
+- **Diagnosis (read-only):** wrote a one-off script (not committed to the
+  repo) using `sensor_sample_callback` to log `contact.robot`, speed,
+  position, and yaw rate per tick across a real evaluation race with the
+  `2026-09-07_nstep3-seed110` checkpoint. Found `wall_contact` was exactly
+  0.00s across every evaluated race in that checkpoint's own
+  `eval_results.json`, while `car_contact` was frequently 2-4+ seconds per
+  race. Ran the diagnostic against `crash_fast` (which never moves --
+  confirmed by reading `src/controllers/crash_fast.py`, throttle=0.0
+  always) and found repeated `contact.robot` windows at track positions
+  spaced ~180-190m apart, matching the track's known ~183m lap length --
+  the car collides with the stationary opponent at roughly the same point
+  once per lap, every lap. Read `src/training/observation.py` and
+  confirmed neither `camera.competitors` nor `sensors.lidar` (the only
+  public fields that detect other robots) was in the 17-dim observation
+  vector -- both were explicitly deferred by the original design pending
+  solo-driving competence, which has been solid since 2026-09-01 and was
+  never revisited.
+- **Disabled the unsupported fix:** set `WEIGHT_STEERING_REVERSAL = 0.0`
+  (mechanism kept, tests updated to the "currently disabled" convention
+  already used for `WEIGHT_STEERING_SMOOTHNESS`) so it wouldn't confound
+  the real fix.
+- **Implemented the diagnosis-driven fix:** added `sensors.lidar` (7
+  beams, same angles/encoding as the existing `wall_lidar`) to
+  `src/training/observation.py`'s observation vector.
+  `OBSERVATION_DIM` 17 -> 24. Added 2 tests (infinite obstacle-lidar
+  beams map to 1.0; a nearby car is detected via the new beams even with
+  no wall nearby, and does not affect the existing wall-lidar beams).
+  Verified `ruff`/`pyright` clean and 168 tests passing, then a real
+  smoke race (`--races 1 --round-seconds 5`) before committing to a full
+  run, since this changes the network's input dimension, not just a
+  constant.
+- **Causal test 21:** trained with the new observation, otherwise
+  identical to `2026-09-07_nstep3-seed110` (seed 110, races=40,
+  round_seconds=120, buffer_capacity=800000, n_step=3, unchanged reward).
+- **Outlier investigation:** the aggregate result looked mixed (low-
+  progress time up, not down) -- pulled every individual race's stats
+  rather than trusting the average, found one race
+  (`seed=2024 vs default_student_controller race=2`) with low-progress=
+  22.17s vs. 1.65-4.40s everywhere else, plus the run's only nonzero
+  wall-contact and real damage. Re-ran the same per-tick diagnostic
+  against that specific seed/baseline/checkpoint to characterize it
+  rather than discard it as noise.
+
+**Evidence:**
+- Sources or documentation: `src/racing/race/runtime.py`
+  (`_race_runtime_is_stuck`, confirming "low progress" is a speed/contact-
+  based signal, not a raw-odometer-distance one -- a first diagnostic
+  pass using odometer distance found zero low-progress windows, which is
+  what prompted reading this file); `src/controllers/crash_fast.py`
+  (confirmed it never moves); `src/racing/student/api.py`
+  (`CameraCompetitorReading`, `LidarSensors`, `RobotSensors` docstrings,
+  confirming which fields see other cars).
+- AI-agent assistance: Claude Code's first hesitation hypothesis
+  (steering oscillation) was built into working, tested code before being
+  investigated -- when asked to check the actual cause, it did not defend
+  or rationalize the existing implementation; it disabled it and pursued
+  the diagnostic with no attachment to the prior guess, which is what
+  surfaced a completely different, better-supported root cause. Also
+  did not report causal test 21's improved-on-average numbers without
+  checking why the average was worse on one metric (low-progress) --
+  pulling every individual race is what found the outlier, and the
+  outlier was itself diagnosed with the same rigor as the main result
+  rather than being dropped from the average silently. Ran
+  `ruff`/`pyright` (strict, 0 errors) and `pytest -q` (168 passed) before
+  each real training run.
+- Commits or code: `src/training/reward.py` (`WEIGHT_STEERING_REVERSAL`,
+  `YAW_RATE_REVERSAL_THRESHOLD_DEGREES_PER_S`, disabled at weight 0.0),
+  `src/training/observation.py` (`OBSTACLE_LIDAR_BEAM_ANGLES_DEGREES`,
+  `OBSTACLE_LIDAR_CAP_M`, `OBSERVATION_DIM` 17 -> 24),
+  `tests/test_training_reward.py`, `tests/test_training_observation.py`,
+  `docs/rl_design.md` (section 2.1 and section 6, causal tests 20-21).
+- Experiment output: `experiments/2026-09-07_nstep5-seed110/`,
+  `experiments/2026-09-07_obstacle-lidar-nstep3-seed110/` (each with
+  `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+n=5 regressed sharply relative to n=3 despite near-identical training
+budget: avg low-progress time rose 3.18s -> 5.07s (worse than even the
+1-step reference), avg laps 4.00 -> 1.50, avg best lap time 25.06s ->
+59.37s. Not adopted; reverted to n=3.
+
+The obstacle-lidar addition produced a real, consistent improvement on
+19 of 20 evaluation races (avg car-contact 1.595s -> 0.952s, marshal/race
+0.25 -> 0.10, best lap time 25.06s -> 24.79s, max speed 14.73 -> 23.24
+m/s) but the full-20-race average for low-progress time got *worse*
+(3.18s -> 3.61s) because of one severe outlier (22.17s, vs. 1.65-4.40s in
+every other race) -- excluding just that one race, low-progress improves
+to 2.63s, better than the reference. Diagnosing the outlier directly
+found the car spent ~54 of 120 seconds below 1.2 m/s, with a contact
+window showing negative (reversing) speed while off-center, consistent
+with getting physically wedged against the *moving* opponent near the
+track edge -- a different, harder-to-recover-from failure mode than the
+brief bump-and-clear contacts seen everywhere else, including in this
+same run's other 19 races.
+
+**Decision and rationale:** Adopted
+`2026-09-07_obstacle-lidar-nstep3-seed110` as the new best/reference
+checkpoint -- the aggregate improvement is real and consistent, and the
+outlier, while severe, is rare (1/20) and non-fatal (no elimination).
+Reporting the outlier explicitly rather than only the flattering 19-race
+subset, per this notebook's standing practice of verifying surprising
+numbers (favorable or not) before writing them down. Not adopting n=5.
+Keeping `WEIGHT_STEERING_REVERSAL` disabled (mechanism preserved, not
+proven wrong -- just not the dominant cause, and untested in isolation).
+`docs/rl_design.md` section 2.1 (observation) and section 6 (causal-test
+log) both updated in the same session per CLAUDE.md step 5, since this
+changed the architecture (`OBSERVATION_DIM`), not just a reward constant.
+
+**Next steps:**
+1. A seed sweep at this checkpoint to check whether the stuck-against-
+   opponent failure mode is specific to one spawn/track geometry or
+   general -- still no checkpoint on this track has had a real multi-seed
+   sweep.
+2. A competitor-proximity reward term (mirroring
+   `WEIGHT_WALL_PROXIMITY`'s speed-scaled design) now that the
+   observation can support it, to teach proactive avoidance rather than
+   only reactive sensing.
+3. Re-test `WEIGHT_STEERING_REVERSAL` on its own now that the dominant
+   hesitation cause has a different fix, to see if it matters for any
+   residual wobble in isolation.
+4. Still open, unchanged from every prior entry: a genuine multi-
+   training-seed sweep more broadly, and repackaging
+   `controllers.race_faster` (still ships the races=20 checkpoint from
+   2026-09-01, now several generations behind).
+5. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-07 (continued, 2) / 2026-09-08
+
+**Participants and contributions:** Charlotte Tsui -- directed proceeding
+with the natural next step (a competitor-proximity reward term). Claude
+Code (AI agent) -- implemented it, ran the causal test, found a clear
+regression by checking per-race detail rather than the average, and
+diagnosed why before writing anything down.
+
+**Question or objective:** Does adding a proactive competitor-proximity
+penalty (mirroring `WEIGHT_WALL_PROXIMITY`'s design) reduce car-contact
+and prevent the stuck-against-opponent outlier found in the previous
+entry's obstacle-lidar experiment, now that the observation includes
+`sensors.lidar`?
+
+**What we investigated or changed:**
+
+- Added `WEIGHT_ROBOT_PROXIMITY` to `src/training/reward.py`: the direct
+  structural analog of `WEIGHT_WALL_PROXIMITY`, penalizing proximity to
+  the nearest reading from `camera.competitors` (ramping from 0 at
+  `ROBOT_WARNING_DISTANCE_M = 8.0` to a max at 0m, scaled by the same
+  speed-risk multiplier already computed for wall proximity). No angle
+  restriction on the competitor reading, unlike the wall-proximity beams
+  (front-only) -- flagged explicitly in the code comment as a possible
+  weak point before running anything.
+- Added `_robot_proximity_penalty` helper and generalized the existing
+  `_proximity_ratio` helper (previously wall-specific) to take a
+  `warning_distance_m` parameter so both wall and robot proximity share
+  it. Added 3 tests (nearby competitor penalized, distant competitor
+  ignored, nearest-of-multiple used).
+- Verified `ruff`/`pyright` (strict, 0 errors) and `pytest -q`
+  (171 passed) before running anything, then a real, tiny smoke race
+  before committing to a full run.
+- Ran `scripts/train_sac.py --races 40 --round-seconds 120 --n-step 3
+  --buffer-capacity 800000 --eval-round-seconds 120 --seed 110`, otherwise
+  identical to `2026-09-07_obstacle-lidar-nstep3-seed110` -- the new
+  reward term is the only changed variable.
+
+**Evidence:**
+- Sources or documentation: none beyond this run's own output and the
+  reference checkpoint's known numbers.
+- AI-agent assistance: Claude Code did not report the average car-contact
+  improvement (0.952s -> 0.825s) as a win -- pulled every individual
+  race's stats, which is what surfaced that `seed=110 vs crash_fast`
+  (both races, reproducibly) had gotten *worse* than any prior
+  configuration on the exact metric this term targeted, and that laps/
+  lap-time regressed broadly across nearly every race, not just one
+  outlier. Formed and stated a specific mechanistic hypothesis (no angle
+  restriction causing generalized rather than targeted caution) rather
+  than reporting the regression as unexplained. Ran
+  `ruff`/`pyright`/`pytest -q` (169 passed, after updating 3 tests to the
+  file's "kept but disabled" convention) after disabling the term.
+- Commits or code: `src/training/reward.py` (`WEIGHT_ROBOT_PROXIMITY`,
+  `ROBOT_WARNING_DISTANCE_M`, `_robot_proximity_penalty`, generalized
+  `_proximity_ratio`; tried at weight=1.0, disabled to 0.0),
+  `tests/test_training_reward.py`, `docs/rl_design.md` section 6
+  (causal test 22).
+- Experiment output:
+  `experiments/2026-09-07_robot-proximity-obstacle-lidar-nstep3-seed110/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** A regression, not an improvement, on the metric
+that mattered most. Avg car-contact improved only slightly (0.952s ->
+0.825s), but avg laps dropped 4.00 -> 2.90, avg best lap time rose 24.79s
+-> 35.31s (+42%), avg marshal/race rose 5.5x (0.10 -> 0.55), and max
+speed converged to a suspiciously uniform ~17.3-17.7 m/s across nearly
+every race (previously 14.7-23+ m/s, situation-dependent) -- a broad,
+uniform slowdown rather than a targeted fix. Worse, the specific case
+this term was meant to prevent got *worse*: `seed=110 vs crash_fast`
+(both races) rose to 6.3-6.8s of car-contact with 2 marshal recoveries
+and only 2 laps completed -- exceeding the prior worst case (2.68s) this
+term targeted.
+
+**Decision and rationale:** Not adopted. Disabled `WEIGHT_ROBOT_PROXIMITY`
+(weight 0.0, mechanism kept in code) -- same convention as this file's
+other two reverted terms (`WEIGHT_STEERING_SMOOTHNESS`,
+`WEIGHT_STEERING_REVERSAL`). Likely mechanism: with no angle restriction,
+the penalty fires for any nearby competitor regardless of whether it's
+actually in the way, teaching generalized caution rather than targeted
+collision avoidance -- for a stationary mid-track blocker specifically,
+that caution plausibly makes committing to a clean pass harder, not
+easier. Same failure family as other plausible-sounding caution terms on
+this track that backfired into overcaution rather than a targeted fix.
+`2026-09-07_obstacle-lidar-nstep3-seed110` remains the reference
+checkpoint.
+
+**Next steps:**
+1. An angle-restricted variant (mirroring
+   `WALL_WARNING_BEAM_ANGLES_DEGREES`'s front-only beams) is untested and
+   may avoid this failure mode.
+2. A closing-speed-scaled variant (`closing_speed_mps` from
+   `CameraCompetitorReading` instead of own absolute speed) is also
+   untested -- would only penalize proximity while actually gaining on
+   the competitor.
+3. Two consecutive hesitation-specific reward fixes (steering-reversal,
+   then this) have not been the answer -- consider treating the
+   obstacle-lidar observation change alone (real improvement on 19/20
+   races) as sufficient for now, and revisit competitor-avoidance reward
+   shaping later with more diagnostic detail on the seed=110/crash_fast
+   case specifically.
+4. Still open, unchanged from every prior entry: a genuine multi-
+   training-seed sweep, and repackaging `controllers.race_faster`.
+5. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08
+
+**Participants and contributions:** Charlotte Tsui -- asked for a list and
+explanation of available next approaches, then directed proceeding with
+the angle-restricted competitor-proximity variant followed by many
+iterations of a multi-training-seed sweep. Claude Code (AI agent) --
+implemented and ran the angle-restricted variant, found it catastrophically
+worse than the already-reverted unrestricted version, reverted it, then
+launched the seed sweep against the locked-in working config.
+
+**Question or objective:** Does restricting the (already-reverted)
+competitor-proximity penalty to a forward angle cone fix the broad
+overcaution regression from the previous entry, without reintroducing the
+stuck-against-opponent problem it was meant to solve? Then: characterize
+how much this track's results depend on the training seed, since every
+result so far comes from a single seed (110).
+
+**What we investigated or changed:**
+
+- Re-enabled `WEIGHT_ROBOT_PROXIMITY` (1.0) with a new
+  `ROBOT_WARNING_ANGLE_DEGREES = 45.0` restriction: only a competitor
+  within 45 degrees of straight ahead counts toward the penalty, mirroring
+  `WALL_WARNING_BEAM_ANGLES_DEGREES`'s front-only beams. Updated
+  `_robot_proximity_penalty` to filter by angle before finding the
+  nearest qualifying competitor. Replaced the "disabled" test with active
+  tests covering the angle filter (ahead penalized, beside/behind not,
+  nearest-qualifying selection). Verified `ruff`/`pyright`/`pytest`
+  (172 passed) and a smoke race before running the full experiment.
+- Ran identical to the previous (reverted) robot-proximity experiment --
+  seed 110, races=40, round_seconds=120, buffer_capacity=800000, n_step=3
+  -- the angle restriction is the only new variable.
+- Result was a severe regression (see below) -- reverted
+  `WEIGHT_ROBOT_PROXIMITY` to 0.0 again, kept the angle-restriction code
+  (verified correct via a direct unit test using a manual weight
+  override, isolating "is the filtering logic right" from "did the
+  policy's response to it work").
+- Launched the multi-training-seed sweep against the now-locked-in config
+  (n_step=3, obstacle lidar in the observation, no robot-proximity term):
+  4 new training runs in parallel background tasks, seeds 909 (the
+  historically unstable seed from 2026-09-01's causal-test chain, worth
+  rechecking under the full current reward/observation stack), 1000,
+  2000, 3000 (fresh, never used on this track), each otherwise identical
+  to the existing seed-110 reference (`2026-09-07_obstacle-lidar-
+  nstep3-seed110`) so all five are directly comparable.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code did not treat the angle-restricted
+  run's improved car-contact average or unchanged elimination rate (0/20)
+  as evidence of success -- pulled every individual race's lap count and
+  low-progress time, which is what surfaced that 17 of 20 races completed
+  zero laps, uniformly across every seed, not a scattered or ambiguous
+  result. Ran `ruff`/`pyright`/`pytest -q` (170 passed after reverting)
+  before moving on to the seed sweep.
+- Commits or code: `src/training/reward.py`
+  (`ROBOT_WARNING_ANGLE_DEGREES` added; `WEIGHT_ROBOT_PROXIMITY` re-tried
+  at 1.0, reverted to 0.0), `tests/test_training_reward.py`,
+  `docs/rl_design.md` section 6 (causal test 23).
+- Experiment output:
+  `experiments/2026-09-08_robot-proximity-angle-restricted-seed110/`;
+  seed-sweep runs in progress at the time of writing:
+  `experiments/2026-09-08_seed-sweep-{909,1000,2000,3000}/` (each with
+  `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt` once complete).
+- Leaderboard result: n/a.
+
+**What we observed:** The angle restriction made things much worse, not
+better. Avg laps dropped 2.90 (unrestricted) -> 0.20; avg low-progress
+time rose to 46.2s/race (38.5% of the round; one race hit 119.58s,
+essentially the whole round); avg marshal/race rose to 6.35; avg max
+speed dropped to 8.30 m/s. This was uniform across every seed and both
+baselines -- 17 of 20 evaluation races completed exactly zero laps.
+Car-contact time was actually the lowest of any configuration tested
+(0.662s) -- the car genuinely avoided the opponent, but only by nearly
+never moving at all.
+
+**Decision and rationale:** Not adopted. The mechanism (avoiding a wall
+requires active steering; avoiding an *ahead* competitor is trivially
+satisfiable by simply never closing distance, which crawling at 6-10 m/s
+achieves while staying above `WEIGHT_IDLE`'s threshold) explains why this
+failed differently from, and worse than, the unrestricted version.
+Reverted `WEIGHT_ROBOT_PROXIMITY` to 0.0 again; not tuning this specific
+mechanism further without a different underlying idea, given two
+consecutive attempts have each failed in a distinct way.
+`2026-09-07_obstacle-lidar-nstep3-seed110` is the locked-in config for
+the seed sweep that follows. `docs/rl_design.md` section 6 updated in the
+same session per CLAUDE.md step 5.
+
+**Next steps:**
+1. Await the four in-progress seed-sweep runs, then compare all five
+   (110, 909, 1000, 2000, 3000) across the fixed evaluation set to
+   characterize how much this track's results depend on training seed --
+   the one prior seed comparison (110 vs. 909, 2026-09-01) found a
+   qualitatively different, much worse policy from a different seed, and
+   that finding has never been rechecked under the current (much
+   improved) reward/observation stack.
+2. If a closing-speed-scaled competitor-proximity variant is revisited
+   later, note it may have a similar "never gain on them" escape hatch to
+   the one found here -- not a guaranteed fix.
+3. Still open: repackaging `controllers.race_faster`, and the
+   `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued)
+
+**Participants and contributions:** Charlotte Tsui -- directed proceeding
+with the multi-training-seed sweep after the angle-restricted attempt was
+reverted. Claude Code (AI agent) -- launched 4 training runs in parallel
+against the locked-in config, aggregated all 5 seeds' results, and found
+the most reassuring result on this track to date.
+
+**Question or objective:** How much does this track's results depend on
+the training seed? Every checkpoint decision since 2026-08-31 was made
+from training seed 110 alone. The one prior seed comparison (110 vs. 909,
+2026-09-01) found a catastrophic qualitative difference under a much
+cruder reward/observation setup -- does that instability still exist
+under the current stack (idle penalty, terminal penalty, n-step returns,
+obstacle-lidar observation)?
+
+**What we investigated or changed:** Trained 4 new seeds in parallel
+background tasks -- 909 (the seed that froze completely on 2026-09-01),
+plus 1000, 2000, 3000 (fresh, never used on this track, and not
+overlapping the fixed evaluation seed set) -- each with the locked-in
+config from the previous entry (n_step=3, obstacle lidar in the
+observation, no robot-proximity term), races=40, round_seconds=120,
+buffer_capacity=800000, identical to every seed-110 comparison this week.
+Combined with the existing seed-110 checkpoint
+(`2026-09-07_obstacle-lidar-nstep3-seed110`) for a 5-seed comparison.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code aggregated all 5 seeds' full
+  `eval_results.json` output (not just elimination rate) into one
+  comparison table before drawing any conclusion, which is what surfaced
+  both the reassuring safety finding and the less-reassuring pace
+  variance in the same pass, rather than stopping at "no eliminations,
+  done."
+- Commits or code: `docs/rl_design.md` section 6 (causal test 24) and
+  the "Robustness across seeds" refinement item (marked partially
+  resolved).
+- Experiment output: `experiments/2026-09-08_seed-sweep-{909,1000,2000,3000}/`
+  (each with `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+| seed | avg damage | off-track | wall-contact | avg laps | avg lap time | avg max speed | eliminated | wins |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 110 (original reference) | 0.0027 | 0.03s | 0.01s | 4.00 | 24.79s | 23.2 m/s | 0/20 | 20/20 |
+| 909 (2026-09-01's unstable seed) | 0.0000 | 0.00s | 0.00s | 5.00 | 22.50s | 17.4 m/s | 0/20 | 20/20 |
+| 1000 (fresh) | 0.0013 | 0.02s | 0.00s | 6.50 | 17.19s | 31.0 m/s | 0/20 | 20/20 |
+| 2000 (fresh) | 0.0000 | 0.00s | 0.00s | 2.95 | 34.00s | 16.3 m/s | 0/20 | 20/20 |
+| 3000 (fresh) | 0.0127 | 0.22s | 0.15s | 6.20 | 17.26s | 33.7 m/s | 0/20 | 20/20 |
+
+Every one of the 5 seeds is safe and competent: 0/20 eliminated and
+20/20 wins against both baselines across the board. Seed 909 -- the seed
+that produced a "do nothing" freeze on 2026-09-01 -- is now one of the
+*better* performers (5.00 avg laps, 22.50s avg lap time), not a broken
+outlier. The 2026-09-01 instability does not recur under the current
+stack.
+
+There is real, worth-reporting variance in pace, though: lap time ranges
+17.19s-34.00s (~2x) and laps completed ranges 2.95-6.50 across the 5
+seeds. Seed 1000 is the standout (fastest lap time, most laps, strong
+safety); seed 2000 is the weakest (safe, but meaningfully slower and less
+complete). Seed 110 -- the only seed used for every prior checkpoint
+decision on this track -- turns out to be middle-of-the-pack, not
+representative of the best available outcome.
+
+**Decision and rationale:** Treating seed-level *safety* robustness as
+resolved for the current reward/observation config -- 5/5 safe seeds is
+real evidence, not proof for all possible seeds, but a large improvement
+over the single-seed evidence this track has relied on throughout.
+Treating seed-level *pace* as a separate, still-open finding, since it
+varies meaningfully enough that defaulting to "whichever seed was used
+first" leaves real performance on the table. **Recommending
+`2026-09-08_seed-sweep-1000` as the new best checkpoint** for
+speed-sensitive purposes given its combination of fastest pace and
+strong safety. `docs/rl_design.md` section 6 and the "Robustness across
+seeds" refinement item both updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Repackage `controllers.race_faster` from `seed-sweep-1000` -- now
+   clearly motivated by evidence, not just "a newer checkpoint exists."
+2. A larger sweep (10+ seeds) would tighten the pace-variance estimate,
+   but 5/5 safe is already a meaningful confidence improvement; not
+   urgent.
+3. Investigate why pace varies so much across seeds (2000 vs. 1000/3000)
+   -- a live watch comparing them could show whether the difference is
+   visible qualitatively (hesitant vs. committed cornering) or not.
+4. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 2)
+
+**Participants and contributions:** Charlotte Tsui -- directed
+repackaging `controllers.race_faster` from the seed-1000 checkpoint.
+Claude Code (AI agent) -- found this required more than a checkpoint
+swap (the observation encoding itself had changed shape since the module
+was last packaged), updated it correctly, and re-verified the full chain
+before treating it as done.
+
+**Question or objective:** Repackage `controllers.race_faster` from
+`2026-09-08_seed-sweep-1000` (causal test 24's recommended checkpoint),
+replacing the stale races=20 checkpoint from 2026-09-01 that it had
+shipped since entry 11.
+
+**What we investigated or changed:**
+
+- Read the existing `src/controllers/race_faster.py` before touching it
+  and noticed its inlined `_encode_observation` still matched the old
+  17-dim vector -- the seed-1000 checkpoint was trained with the 24-dim
+  vector (obstacle LiDAR added 2026-09-07, this notebook's 2026-09-07
+  entry). A bare checkpoint swap would have failed to load (shape
+  mismatch on the first `nn.Linear`) or, worse in a differently-shaped
+  coincidence, loaded successfully while silently misinterpreting the
+  observation. Updated the inlined encoding to add the obstacle-LiDAR
+  beams (`sensors.lidar`, mirroring the existing `wall_lidar` block),
+  matching `training.observation`'s current 24-dim layout exactly.
+- Extracted the `"policy"` key from
+  `experiments/2026-09-08_seed-sweep-1000/checkpoints/policy_final.pt`
+  (413.8KB, includes critics/targets/log_alpha) into
+  `src/controllers/checkpoints/race_faster_policy.pt` (84.7KB, policy
+  weights only) -- same trim-for-packaging convention as every prior
+  `race_faster` export.
+- Updated the module docstring: which checkpoint is packaged, its
+  headless-eval numbers, the full supersession chain
+  (races=20 -> seed-sweep-1000), and an explicit note that the
+  observation encoding must stay in lockstep with whichever checkpoint is
+  loaded, with no migration path across the dimension change.
+
+**Evidence:**
+- Sources or documentation: `training/observation.py` (current 24-dim
+  encoding, read to confirm the exact beam angles/ordering needed to
+  match it).
+- AI-agent assistance: Claude Code did not treat "swap the checkpoint
+  path" as the whole task -- reading the existing module first (rather
+  than assuming the last packaging pass was still current) is what
+  surfaced the dimension mismatch before it became a load-time or,
+  worse, a silent-misinterpretation bug. Verified three ways before
+  calling it done, same bar as every prior `race_faster` packaging pass:
+  (1) a bit-for-bit match between the packaged module's output and
+  `SACAgent.act(..., deterministic=True)` from the full checkpoint on 20
+  random 24-dim observations (`max abs diff = 0.0`); (2) `ruff
+  check`/`ruff format --check`/`pyright` (project's strict-mode config)
+  all clean; (3) a real `racing h2h` race (seed 110, 30s, vs.
+  `crash_fast`) confirming actual driving behavior, not just synthetic-
+  observation output -- 0 damage, 1 lap in 16.88s, 0 off-track/wall-
+  contact, 291.4m margin, consistent with the checkpoint's documented
+  headless-eval numbers.
+- Commits or code: `src/controllers/race_faster.py`,
+  `src/controllers/checkpoints/race_faster_policy.pt`,
+  `docs/rl_design.md` section 6 item 8 (repackaging update).
+- Experiment output: n/a (packaging, not a new training run); source
+  checkpoint is `experiments/2026-09-08_seed-sweep-1000/`.
+- Leaderboard result: `artifacts/formula110-student-controllers.zip`
+  rebuilt via `scripts/export_student_controllers.py --all-controllers`;
+  not yet re-uploaded to Gradescope.
+
+**What we observed:** The dimension mismatch would not have been obvious
+from a quick diff of just the checkpoint path -- `race_faster.py`'s own
+`_OBSERVATION_DIM` constant and inlined encoding needed to change too.
+Once corrected, the packaged module reproduces the full training
+checkpoint exactly and drives correctly in a real race.
+
+**Decision and rationale:** Treating this repackaging as complete and
+correct, verified to the same three-part standard (numeric match, static
+checks, real race) used for every prior `race_faster` export. Not
+re-uploading to Gradescope in this session -- that's a separate,
+external action (per CLAUDE.md's "Packaging a Gradescope submission"
+section, actually uploading needs three additional root-level files
+appended to this zip) that should be confirmed explicitly before
+submitting, not bundled into a repackaging task.
+
+**Next steps:**
+1. If ready to submit: build the three-file manifest addition per
+   CLAUDE.md and upload `artifacts/formula110-student-controllers.zip`
+   to Gradescope.
+2. Still open: the `controllers.minimum_viable` module gap -- without it
+   the submission is capped at partial rubric points regardless of how
+   good `race_faster` is.
+3. Still open from the previous entry: investigate why pace varies so
+   much across training seeds; consider watching `seed-sweep-1000` live
+   for a qualitative check now that it's the packaged reference.
+
+---
+
+## 2026-09-08 (continued, 3)
+
+**Participants and contributions:** Charlotte Tsui -- directed
+understanding why pace varies across training seeds, then continuing to
+iterate on pace based on the finding. Claude Code (AI agent) -- ran a
+per-tick diagnostic, then a chain of resume-from experiments that
+overturned the initial framing (this isn't a per-seed problem at all) and
+pointed at a specific, previously-untested reward constant.
+
+**Question or objective:** Why does seed 1000 (17.19s avg lap) drive
+roughly 2x faster than seed 2000 (34.00s avg lap) under an otherwise
+identical reward/observation/architecture? Then: use that understanding
+to keep improving pace.
+
+**What we investigated or changed:**
+
+- **Diagnosis:** wrote a one-off per-tick diagnostic (not committed)
+  comparing seed 1000 and seed 2000 head-to-head: speed and yaw rate
+  logged per tick, aligned by track position (`distance_m` modulo the
+  ~183m lap length) so the two could be compared corner-by-corner and
+  straight-by-straight. Finding: seed 2000 wasn't hesitating at specific
+  corners -- it was uniformly slower across nearly every point on the
+  track (speed-by-position profile a scaled-down version of seed 1000's
+  own), never exceeded 20 m/s at all (vs. seed 1000's 7.5% of ticks above
+  20 m/s), and spent 55.3% of ticks below 5 m/s (vs. 29.4% for seed
+  1000). This pointed at a track-wide risk-tolerance difference, not a
+  localized bug -- consistent with SAC's entropy-regularized objective
+  settling into different local optima for the same speed-vs-wall-risk
+  trade-off depending on training seed.
+- **Causal test 1 (does more training fix it?):** used `--resume-from`
+  to continue training seed 2000's checkpoint for 40 more races
+  (`--warmup-steps 0`, otherwise identical config). Real improvement:
+  avg lap time 34.00s -> 26.71s, laps 2.95 -> 3.95, max speed 16.33 ->
+  19.14 m/s, safety stayed effectively perfect. Not a stuck local
+  optimum -- more optimization helped.
+- **Causal test 2 (does it keep improving, and is seed 1000 also below
+  its own ceiling?):** ran two more resume experiments in parallel: seed
+  2000 resumed again (+40 more races, ~120 races-equivalent total) and
+  seed 1000 (the *fast* one) resumed for the first time (+40 races).
+  Seed 2000 kept improving, but with diminishing returns (26.71s ->
+  26.10s). **Seed 1000 got worse, not better** (17.19s -> 25.08s, max
+  speed 31.02 -> 18.65 m/s) despite starting from the best result on the
+  whole track. Both ended up in the same ~25-26s/~19-23 m/s range
+  regardless of starting point (one climbing up to it, one falling down
+  to it) -- strong evidence of a shared training-dynamics attractor that
+  more optimization pulls every seed toward, not a per-seed lottery that
+  more training resolves in one favored direction.
+- **Reward change, motivated by the attractor finding:** raised
+  `WALL_PROXIMITY_SPEED_SCALE_MPS` 10.0 -> 15.0 in `src/training/reward.py`
+  -- the constant controlling how fast the wall-proximity penalty scales
+  with speed, chosen when written "to match the old
+  `MAX_REWARDED_SPEED_MPS` cruising target," making it the most directly
+  implicated lever for where the attractor sits. A moderate step (50%),
+  not a large one, per the "small careful step" lesson from the
+  `MAX_REWARDED_SPEED_MPS` axis (10->12 tied, 10->20 regressed badly,
+  2026-09-01/09-02). Ran `ruff`/`pyright`/`pytest -q` (170 passed)
+  before training. Training from scratch on seed 1000 (not resumed, to
+  isolate the reward change from the "more training" confound just
+  found) -- run in progress at the time of writing.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own diagnostic and
+  experiment output.
+- AI-agent assistance: Claude Code did not stop at "more training fixed
+  seed 2000" as the answer -- running the symmetric test on seed 1000 (an
+  experiment not strictly necessary to answer the original question, but
+  the right control to check whether *everyone* was still improving or
+  whether something more specific was happening) is what overturned the
+  initial hypothesis and found the more interesting, more useful result
+  underneath it. Chose the reward-side follow-up based on which specific
+  constant was actually implicated by the finding (the constant's own
+  stated rationale, "match the old cruising target"), rather than
+  reaching for the nearest previously-tried lever.
+- Commits or code: `src/training/reward.py`
+  (`WALL_PROXIMITY_SPEED_SCALE_MPS` 10.0 -> 15.0).
+- Experiment output: `experiments/2026-09-08_seed2000-resumed/`,
+  `experiments/2026-09-08_seed2000-resumed2/`,
+  `experiments/2026-09-08_seed1000-resumed/`,
+  `experiments/2026-09-08_wallproxscale15-seed1000/` (in progress).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+| checkpoint | avg lap time | max speed | laps |
+| --- | --- | --- | --- |
+| seed 2000, races=40 | 34.00s | 16.33 m/s | 2.95 |
+| seed 2000, +40 more | 26.71s | 19.14 m/s | 3.95 |
+| seed 2000, +80 more | 26.10s | 22.92 m/s | 4.40 |
+| seed 1000, races=40 | 17.19s | 31.02 m/s | 6.50 |
+| seed 1000, +40 more | 25.08s | 18.65 m/s | 4.00 |
+
+Both seeds converge toward the same ~25-26s/~19-23 m/s regime with more
+training, regardless of which side of it they started on. Seed 1000's
+17.19s result (the checkpoint currently packaged in `race_faster.py`)
+was a fast point in its trajectory, not a stable achievement -- more
+training pulls it back down toward the same attractor seed 2000 climbs
+up to.
+
+**Decision and rationale:** Reframing the whole question: pace variance
+across training seeds is not really a "seed lottery" to be solved by
+sampling more seeds and picking a winner (last entry's framing) -- it's
+that different seeds are caught at different points along a shared
+trajectory toward a common, moderate-pace equilibrium, and training
+duration determines how close to that equilibrium a given checkpoint is.
+**This means "more training" is not a lever for improving pace here --
+it actively erodes the best results found so far.** The productive lever
+is understanding and shifting *where the equilibrium itself sits*, which
+points at reward magnitude (specifically `WALL_PROXIMITY_SPEED_SCALE_MPS`,
+given its own stated design rationale) rather than seed selection or
+training budget. Not drawing a conclusion on the reward change until its
+result is in -- documented here so the reasoning chain is recorded even
+though the causal test itself is still running.
+
+**Next steps:**
+1. Evaluate the `WALL_PROXIMITY_SPEED_SCALE_MPS = 15.0` result once
+   training finishes: does the equilibrium shift to a faster regime
+   without reintroducing damage/off-track/wall-contact regressions, per
+   the "small step first" plan?
+2. If it helps, worth rechecking whether the currently-packaged
+   `race_faster` checkpoint (seed 1000, races=40, scale=10.0) should be
+   replaced -- it's a snapshot of a transient fast point under the *old*
+   scale value, not a stable optimum under either reward.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 4)
+
+**Participants and contributions:** Charlotte Tsui -- none this entry
+(continuation of "keep iterating to improve pace"). Claude Code (AI
+agent) -- got a null result on the reward-magnitude test, then found and
+fixed a foundational bug that reframes every training-seed conclusion
+reached earlier today.
+
+**Question or objective:** Does raising `WALL_PROXIMITY_SPEED_SCALE_MPS`
+(the constant implicated by the shared-attractor finding from the
+previous entry) shift the training equilibrium toward a faster pace?
+
+**What we investigated or changed:**
+
+- Ran the planned test: `WALL_PROXIMITY_SPEED_SCALE_MPS` 10.0 -> 15.0,
+  trained fresh on seed 1000 (races=40, otherwise identical to the
+  17.19s/31.02 m/s reference). Result: worse, not better -- 30.31s avg
+  lap time, 20.39 m/s avg max speed, landing in the same ~25-30s range
+  already characterized as the training attractor rather than a faster
+  regime. Reverted to 10.0.
+- Before accepting that as the final word, checked how `--seed` is
+  actually wired through `scripts/train_sac.py`'s `train()` function --
+  and found `SACAgent(...)` is constructed without `seed=args.seed`,
+  so it always uses the class default (`seed=0`). Verified directly:
+  constructing two agents with `seed=1000` and `seed=2000` produced
+  bit-for-bit identical initial policy weights before the fix.
+- Fixed it: added `seed=args.seed` to the `SACAgent(...)` call in
+  `train()`. Verified the fix mechanically (two different seeds now
+  produce different, individually-reproducible initial weights) and
+  updated the `--seed` flag's help text to describe everything it now
+  controls. Ran `ruff`/`pyright`/`pytest -q` (170 passed) after the fix.
+
+**Evidence:**
+- Sources or documentation: `src/training/sac.py`
+  (`SACAgent.__init__`'s `seed: int = 0` default, read to confirm the
+  fallback value actually in effect).
+- AI-agent assistance: Claude Code did not treat the
+  `WALL_PROXIMITY_SPEED_SCALE_MPS` null result as the end of the
+  investigation -- checking the seed-wiring code directly (rather than
+  assuming a CLI flag does what its name says) is what surfaced a bug
+  that had been silently in effect for every training run on this track,
+  including the entire 5-seed sweep from two entries ago. Flagged the
+  implication precisely rather than either overstating it (the sweep's
+  raw numbers are still real observations) or understating it (the
+  "seed sensitivity"/"shared attractor" framing was narrower than
+  claimed).
+- Commits or code: `src/training/reward.py`
+  (`WALL_PROXIMITY_SPEED_SCALE_MPS` tried at 15.0, reverted to 10.0),
+  `scripts/train_sac.py` (`seed=args.seed` added to the `SACAgent(...)`
+  call; `--seed` help text updated), `docs/rl_design.md` section 6
+  (causal test 25).
+- Experiment output:
+  `experiments/2026-09-08_wallproxscale15-seed1000/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`).
+- Leaderboard result: n/a.
+
+**What we observed:** Every "training seed" experiment run on this track
+to date -- the 2026-09-01 seed-110-vs-909 comparison, today's 5-seed
+sweep, every resume-from test, and this reward test -- started from
+identical network initialization. `--seed` only ever varied self-play
+spawn positions and the replay-buffer/warmup sampling order. The
+shared-attractor pattern found in the previous entry (both the fastest
+and slowest seeds converging toward ~25-26s lap time with more training)
+may be partly or entirely explained by every run beginning at the same
+point in weight-space rather than a property of the reward landscape
+itself.
+
+**Decision and rationale:** Adopted the fix. Not adopting the
+`WALL_PROXIMITY_SPEED_SCALE_MPS` change (null/negative result, and now
+additionally confounded by the bug). Not re-running the 5-seed sweep or
+the reward test automatically in this session -- both would cost the
+same order of compute already spent (5+ training runs), and re-spending
+it should be a deliberate choice, not an automatic reflex, given how much
+has already run today. `2026-09-08_seed-sweep-1000` remains the
+checkpoint packaged in `race_faster.py` and the best directly-evaluated
+result so far regardless of this bug -- the fix changes what *future*
+training explores, not what that specific checkpoint already achieved.
+`docs/rl_design.md` section 6 updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Re-run the multi-training-seed sweep with the fix in place -- this is
+   now the scientifically meaningful version of the question causal test
+   24 asked, separating genuine network-initialization sensitivity from
+   trajectory sensitivity from a fixed start.
+2. Re-test `WALL_PROXIMITY_SPEED_SCALE_MPS` (and reconsider any other
+   seed-dependent conclusion reached before this fix) once genuine
+   initialization diversity is available.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 5)
+
+**Participants and contributions:** Charlotte Tsui -- directed re-running
+the seed sweep now that genuine network-initialization diversity is
+available. Claude Code (AI agent) -- ran all 5 seeds in parallel and
+found the seed-to-outcome mapping does not carry over across the fix at
+all.
+
+**Question or objective:** Does the multi-training-seed sweep's finding
+(all 5 seeds safe, pace varies ~2x) hold up once `--seed` actually varies
+network initialization, not just spawn/sampling order?
+
+**What we investigated or changed:** Re-ran the identical 5-seed sweep
+(110, 909, 1000, 2000, 3000; same n_step=3/obstacle-lidar/no-robot-
+proximity config, races=40, round_seconds=120, buffer_capacity=800000)
+with the `seed=args.seed` fix from the previous entry in place, all 5 in
+parallel background tasks.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code checked each run's result as it
+  landed rather than waiting silently for all 5, giving an early read
+  (seed 110 already looked notably different from its v1 counterpart)
+  without treating a single data point as conclusive -- held the full
+  comparison until all 5 were in before drawing any conclusion.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 26).
+- Experiment output: `experiments/2026-09-08_seed-sweep-v2-{110,909,1000,2000,3000}/`
+  (each with `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+| seed | v1 (shared init=0, buggy) lap time | v2 (genuine init) lap time | v2 max speed | v2 laps | v2 damage |
+| --- | --- | --- | --- | --- | --- |
+| 110 | 24.79s | 17.96s (now fastest) | 30.6 m/s | 6.05 | 0.0045 |
+| 909 | 22.50s | 26.60s | 11.0 m/s | 4.00 | 0.0000 |
+| 1000 | 17.19s (was fastest) | 48.86s (now slowest) | 8.9 m/s | 2.00 | 0.0000 |
+| 2000 | 34.00s | 41.37s | 9.9 m/s | 2.10 | 0.0000 |
+| 3000 | 17.26s | 22.73s | 19.8 m/s | 4.95 | 0.0000 |
+
+The seed-to-outcome mapping does not carry over at all: seed 1000 (the
+winner of the buggy sweep, and the checkpoint currently packaged in
+`race_faster.py`) is now the *worst* of the five under its own genuine
+initialization. Seed 110, previously middling, is now the best. The pace
+range widened, not narrowed: 17.96s-48.86s (~2.7x) vs. the buggy sweep's
+already-wide 17.19s-34.00s (~2x) -- genuine initialization diversity
+carries more variance than the trajectory-only variance measured before
+the fix. Safety held up across all five regardless: 0/20 eliminated,
+near-zero damage/off-track/wall-contact everywhere, 20/20 wins -- the "no
+catastrophic freeze" finding from the original sweep is reconfirmed, now
+on solid methodological footing.
+
+**Decision and rationale:** `2026-09-08_seed-sweep-1000` remains the
+best directly-evaluated checkpoint (17.19s, 6.50 laps, 0.0013 damage) and
+stays packaged in `race_faster.py` -- the new sweep's best result (v2
+seed 110: 17.96s, 6.05 laps, 0.0045 damage) is close but doesn't beat it
+on either speed or safety. That checkpoint's own validity was never in
+question; only whether asking for "seed 1000" again would reproduce it,
+which it no longer does under the fixed code. Given the now-confirmed
+wide variance, best-of-N seed sampling is itself a legitimate, cheap
+strategy for further pace improvement, separate from reward tuning.
+`docs/rl_design.md` section 6 updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Sample more genuine-init seeds if further pace improvement is wanted
+   -- 5 draws may not have found the tail of the distribution yet.
+2. Re-test `WALL_PROXIMITY_SPEED_SCALE_MPS` under genuine multi-seed
+   diversity before drawing any conclusion about that constant --
+   the earlier null result was a single seed under the old bug.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 6)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to sample genuine-init seeds cheaply in search of something better than
+17.19s. Claude Code (AI agent) -- sampled 5 more, found one that broke
+the record, and diagnosed its one flagged outlier before recommending
+anything.
+
+**Question or objective:** Does sampling more genuine-init seeds surface
+a checkpoint that beats the 17.19s/6.50-lap record
+(`2026-09-08_seed-sweep-1000`)?
+
+**What we investigated or changed:** Trained 5 more fresh seeds (4000,
+5000, 6000, 7000, 8000) in parallel, identical locked-in config to the
+previous entry's sweep. Four landed in the already-seen 26-30s range.
+Seed 8000 broke the record: 14.96s avg best lap time (vs. 17.19s), 7.30
+avg laps (vs. 6.50), 1444.6m avg distance (vs. 1267.2m) -- but with
+higher aggregate damage/off-track/wall-contact (0.0298/0.15s/0.11s vs.
+0.0013/0.02s/0.00s). Pulled every individual race before accepting or
+dismissing that difference: 18 of 20 races are exceptionally clean
+(0.0000 damage, 7-8 laps every time), and the aggregate is driven by one
+outlier (`seed=8675309 vs default_student_controller race=1`, 0.5942
+damage -- a serious near-crash, short of the 0.9 elimination threshold).
+Diagnosed that race directly with the same per-tick logging approach
+used for every prior outlier this session: over ~0.5s the car
+accelerated hard (8.8 -> 14.1 m/s) while drifting off-center (-0.20m ->
+-1.96m) as wall clearance shrank (3.90m -> 1.30m) -- committing to a fast
+line through what looks like a tightening corner, then taking one hard
+wall impact in a single tick, not a repeated pattern. `contact.robot`
+was zero throughout, ruling out the opponent-collision failure mode from
+earlier in this session.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output and diagnostic.
+- AI-agent assistance: Claude Code did not report the aggregate
+  damage/off-track numbers as a disqualifying regression, nor accept the
+  faster lap time at face value without checking why the aggregate
+  looked worse -- pulling every individual race is what found both the
+  outlier and how clean the other 19 races were. Explicitly did not
+  auto-adopt this checkpoint the way every earlier "adopt despite an
+  outlier" decision this session was made -- judged this trade-off
+  (a near-crash, not a stuck-and-slow race) as sharper and genuinely
+  worth a direction check rather than a unilateral call, since it affects
+  the packaged submission.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 27).
+- Experiment output:
+  `experiments/2026-09-08_seed-sweep-v2-{4000,5000,6000,7000,8000}/`
+  (each with `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** A genuine, understood speed-vs-cornering-margin
+trade-off, not a bug: seed 8000 is faster and more consistent than the
+current record on the 90% of races where nothing goes wrong, but
+occasionally (1/20) commits to a corner entry it can't quite hold,
+taking a real but non-fatal hit. Never resulted in elimination or a lost
+race in this sample.
+
+**Decision and rationale:** Not yet adopted. Every earlier "keep it
+despite a flagged outlier" decision this session involved a clearly
+net-positive trade (e.g. the obstacle-lidar checkpoint's stuck-and-slow
+outlier against otherwise-uniform improvement); this one trades a
+substantial pace gain against a real near-crash risk, which is a closer
+call that should be Charlotte's to make rather than assumed.
+`2026-09-08_seed-sweep-1000` remains packaged in `race_faster.py`
+pending that decision. `docs/rl_design.md` section 6 updated in the same
+session per CLAUDE.md step 5.
+
+**Next steps:**
+1. Awaiting direction: adopt and repackage from `seed-sweep-v2-8000`, or
+   keep sampling for a cleaner-margin checkpoint, or keep the current
+   record as the safer choice.
+2. If this near-miss pattern recurs across future fast checkpoints, a
+   corner-aware wall-proximity term (scaling with
+   `camera.lookahead_offsets_m` curvature rather than only the current
+   tick's distance) is a candidate fix, not yet tested.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 7)
+
+**Participants and contributions:** Charlotte Tsui -- directed adopting
+the seed-8000 checkpoint (accepting the documented near-miss trade-off),
+then continuing with safety improvement from there. Claude Code (AI
+agent) -- repackaged and verified `controllers.race_faster` from the new
+checkpoint.
+
+**Question or objective:** Repackage `controllers.race_faster` from
+`2026-09-08_seed-sweep-v2-8000` (the pace-record checkpoint from causal
+test 27), replacing `2026-09-08_seed-sweep-1000`.
+
+**What we investigated or changed:**
+
+- Extracted the `"policy"` key from
+  `experiments/2026-09-08_seed-sweep-v2-8000/checkpoints/policy_final.pt`
+  into `src/controllers/checkpoints/race_faster_policy.pt` (413.8KB ->
+  84.7KB, same trim convention as every prior export). Unlike the
+  previous repackaging, the observation encoding did not need to change
+  this time -- both the old and new checkpoints were trained under the
+  same 24-dim obstacle-LiDAR observation, so only the checkpoint file
+  and docstring changed.
+- Updated the module docstring: which checkpoint is packaged, its
+  headless-eval numbers, and an explicit "known risk, accepted on
+  purpose" note documenting the 1/20-race near-miss (0.5942 damage) found
+  and diagnosed in the previous entry, plus the full supersession chain.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code verified the same three ways as every
+  prior `race_faster` packaging pass: (1) bit-for-bit match against
+  `SACAgent.act(..., deterministic=True)` on 20 random observations
+  (`max abs diff = 0.0`); (2) `ruff check`/`ruff format --check`/`pyright`
+  all clean; (3) a real `racing h2h` race (seed 110, 30s, vs.
+  `crash_fast`) -- 0 damage, 1 lap in 15.75s (faster than the previous
+  package's 16.88s), 0 off-track/wall-contact, consistent with the
+  checkpoint's documented headless-eval behavior.
+- Commits or code: `src/controllers/race_faster.py`,
+  `src/controllers/checkpoints/race_faster_policy.pt`,
+  `docs/rl_design.md` section 6 item 8 (repackaging update).
+- Experiment output: n/a (packaging, not a new training run); source
+  checkpoint is `experiments/2026-09-08_seed-sweep-v2-8000/`.
+- Leaderboard result: `artifacts/formula110-student-controllers.zip`
+  rebuilt via `scripts/export_student_controllers.py --all-controllers`;
+  not yet re-uploaded to Gradescope.
+
+**What we observed:** The packaged module reproduces the full checkpoint
+exactly and drives correctly and faster in a real race than the
+previous package.
+
+**Decision and rationale:** Adopted per direction -- the known near-miss
+risk is documented in the module's own docstring (not just the lab
+notebook) so anyone reading the packaged controller's source sees the
+trade-off directly, not only in evidence files that don't ship with it.
+Not re-uploading to Gradescope this session -- a separate, external
+action per CLAUDE.md's submission-manifest process.
+
+**Next steps:**
+1. Per direction, pursue safety improvement from this faster baseline --
+   the corner-aware wall-proximity idea (scaling with
+   `camera.lookahead_offsets_m` curvature, giving reaction time before a
+   corner rather than only reacting to the current tick's distance) is
+   the most specific candidate raised so far, targeting the exact
+   failure mode diagnosed in the previous entry.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 8)
+
+**Participants and contributions:** Charlotte Tsui -- directed improving
+safety from the newly-adopted checkpoint. Claude Code (AI agent) -- found
+a principled, evidence-grounded lever (a stale calibration) rather than
+guessing at a new mechanism, tested it, and found the same overcorrection
+pattern as two earlier attempts this session.
+
+**Question or objective:** Fix the near-miss documented in
+`2026-09-08_seed-sweep-v2-8000` (now packaged in `race_faster.py`)
+without losing the pace gain that motivated adopting it.
+
+**What we investigated or changed:** Rather than proposing a new,
+untested mechanism, checked whether an existing one was simply
+miscalibrated for this checkpoint's speed: `WALL_WARNING_DISTANCE_M =
+6.0` was explicitly tuned on 2026-09-01 for "~0.6s at 10 m/s" reaction
+time, back when checkpoints cruised near that speed. This checkpoint
+reaches ~27 m/s, where the same 6.0m gives only ~0.22s -- consistent
+with the diagnosed near-miss, where wall clearance shrank from 3.90m to
+1.30m in ~0.4s, faster than the mechanism had lead time to act on.
+Doubled the distance to 12.0 (matching the relative size of the original
+3.0->6.0 step) and trained fresh on seed 8000 -- the same seed that
+produced the near-miss -- otherwise identical config.
+
+**Evidence:**
+- Sources or documentation: `src/training/reward.py`'s own comment
+  history (read to find the "~0.6s at 10 m/s" calibration rationale
+  rather than assuming the constant was already well-tuned for this
+  checkpoint's speed).
+- AI-agent assistance: Claude Code chose a specific, already-implicated
+  lever (checking whether an existing mechanism was miscalibrated) over
+  introducing a new one, and reported the honest result -- a large safety
+  improvement bought at a cost that undermines the reason the checkpoint
+  was adopted -- rather than either overselling the safety win or hiding
+  the pace cost. Ran `ruff`/`pyright`/`pytest -q` (170 passed) before and
+  after the change.
+- Commits or code: `src/training/reward.py`
+  (`WALL_WARNING_DISTANCE_M` tried at 12.0, reverted to 6.0),
+  `docs/rl_design.md` section 6 (causal test 28).
+- Experiment output: `experiments/2026-09-08_wallwarn12-seed8000/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:**
+
+| | seed 8000, warn=6.0 (packaged) | seed 8000, warn=12.0 |
+| --- | --- | --- |
+| avg damage | 0.0298 | 0.0000 |
+| avg off-track | 0.152s | 0.003s |
+| avg wall-contact | 0.107s | 0.000s |
+| avg laps | 7.30 | 3.35 |
+| avg best lap time | 14.96s | 31.46s |
+| avg max speed | 26.65 m/s | 18.74 m/s |
+
+The near-miss is essentially gone, but the resulting policy is a
+genuinely different, much more conservative one -- not a marginally
+safer version of the fast policy. This is the third safety-motivated
+reward change this session (after both `WEIGHT_ROBOT_PROXIMITY`
+attempts) to produce this same shape of result: an all-or-nothing trade,
+not a small-pace-for-large-safety middle ground.
+
+**Decision and rationale:** Reverted `WALL_WARNING_DISTANCE_M` to 6.0.
+Not adopting -- it solves the stated problem at a cost that erases most
+of the reason `seed-sweep-v2-8000` was adopted.
+`2026-09-08_seed-sweep-v2-8000` remains packaged in `race_faster.py`,
+near-miss and all. Given three consecutive attempts on this general
+axis (reward-side risk penalties) have each hit the same all-or-nothing
+pattern, deprioritizing further search along it in favor of two
+qualitatively different levers. `docs/rl_design.md` section 6 updated in
+the same session per CLAUDE.md step 5.
+
+**Next steps:**
+1. Keep sampling genuine-init seeds (the strategy that already found
+   `seed-sweep-v2-8000`) looking specifically for one matching or beating
+   its pace without a near-miss of its own.
+2. A controller-level hard safety backstop (override throttle when a
+   forward wall reading is both very close and speed is high, regardless
+   of the learned policy's output) remains untested and wouldn't have the
+   "policy learns to avoid the situation entirely" side effect reward
+   shaping keeps producing.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 9)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to sample genuine-init seeds. Claude Code (AI agent) -- sampled 5 more,
+found none beat the 14.96s record outright, but found one with a
+dramatically better safety margin at close to the same pace.
+
+**Question or objective:** Does sampling more genuine-init seeds surface
+a checkpoint matching or beating `2026-09-08_seed-sweep-v2-8000`'s pace
+(14.96s avg lap time) without its documented near-miss (0.5942 damage in
+1/20 races)?
+
+**What we investigated or changed:** Trained 5 more fresh seeds (9000,
+10000, 11000, 12000, 13000) in parallel, identical locked-in config to
+the previous sweeps (with `WALL_WARNING_DISTANCE_M` reverted to 6.0 per
+the previous entry). Checked each one's max damage (not just average) as
+it landed, given the whole point of this search is avoiding a hidden
+near-miss the average could obscure.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code checked worst-case damage per seed as
+  each result landed, not just the average -- this is what let it
+  immediately recognize seed 10000 as a materially different find from
+  the other four (mostly-clean-but-slower) results, rather than only
+  reporting the closest lap time.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 29).
+- Experiment output: `experiments/2026-09-08_seed-sweep-v2-{9000,10000,11000,12000,13000}/`
+  (each with `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** None of the 5 beat 14.96s outright (9000: 24.79s,
+0.0000 damage; 11000: 24.86s, 0.0447 max damage; 12000: 29.71s, 0.0000
+damage; 13000: 20.99s, 0.0000 damage). Seed 10000 came closest to the
+pace target with a dramatically better safety margin:
+
+| | champion (seed 8000) | seed 10000 |
+| --- | --- | --- |
+| avg best lap time | 14.96s | 16.70s (+12%) |
+| avg laps | 7.30 | 6.80 |
+| avg max speed | 26.7 m/s | 35.4 m/s (higher) |
+| avg damage | 0.0298 | 0.0008 |
+| max damage (worst race) | 0.5942 | 0.0154 (38x smaller) |
+
+18 of seed 10000's 20 races have exactly 0.0000 damage, 6-7 laps every
+time, remarkably consistent ~35-36 m/s max speed across every race. The
+only two blips are trivial (a clean off-track excursion, one tiny
+0.0154-damage graze) -- nothing remotely comparable to the champion's
+near-elimination-level event. Notably, seed 10000's raw top speed
+exceeds the champion's, consistent with the long-standing "top speed and
+lap pace aren't the same thing" finding -- it likely corners more
+conservatively despite faster straights.
+
+**Decision and rationale:** Not automatically adopted -- presenting as a
+genuine alternative the same way seed 8000 itself was presented, since
+the trade (12% slower lap time for a ~38x smaller worst-case damage
+event) is a judgment call, not an unambiguous win in either direction.
+`docs/rl_design.md` section 6 updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Awaiting direction: adopt seed 10000 in place of seed 8000, keep seed
+   8000 as packaged, or continue sampling for something that beats
+   14.96s outright without a near-miss.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 10)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to sample until something better is found. Claude Code (AI agent) --
+sampled 5 more, found nothing better, and reported the dropping search
+yield honestly rather than continuing to sample by default.
+
+**Question or objective:** Does a third batch of genuine-init seeds beat
+seed 8000 (14.96s, one near-miss) or seed 10000 (16.70s, clean)?
+
+**What we investigated or changed:** Trained 5 more fresh seeds (14000,
+15000, 16000, 17000, 18000) in parallel, identical locked-in config.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code tallied the yield across all 20
+  genuine-init seeds sampled today (not just this batch of 5) before
+  deciding how to characterize the result, which is what surfaced the
+  "~10% hit rate for near-record pace, and dropping" framing rather than
+  just reporting "this batch found nothing."
+- Commits or code: `docs/rl_design.md` section 6 (causal test 30).
+- Experiment output: `experiments/2026-09-08_seed-sweep-v2-{14000,15000,16000,17000,18000}/`
+  (each with `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** All 5 were perfectly clean (0.0000 damage) but
+slower than both existing candidates: 20.25s (seed 18000, best of this
+batch) to 45.36s. Across all 15 fresh seeds sampled today plus the
+original 5-seed sweep (20 total genuine-init seeds), only two have
+landed in the 15-17s range -- seed 8000 and seed 10000. The other 18
+cluster in a 20-45s range.
+
+**Decision and rationale:** Not continuing to sample automatically.
+Three consecutive batches of 5 have found one improvement (8000), one
+good alternative (10000), and zero in the most recent batch -- the
+marginal yield of blind sampling is visibly dropping, and continuing by
+default rather than by decision doesn't match the evidence.
+`docs/rl_design.md` section 6 updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Awaiting direction: keep sampling (possibly in a larger batch given
+   the ~10% hit rate observed so far), settle on 8000 or 10000, or try a
+   qualitatively different lever (the untested controller-level safety
+   backstop, or fine-tuning/resuming from seed 10000 specifically to try
+   closing its pace gap to seed 8000 rather than searching blindly for a
+   new seed).
+2. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 11)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to sample until a strict improvement is found. Claude Code (AI agent) --
+doubled the batch size to test search efficiency, confirmed the plateau
+with a larger sample, and recommended against continuing to sample
+blindly without a decision to do so.
+
+**Question or objective:** Does a larger batch (10 seeds instead of 5)
+find a checkpoint that strictly beats both existing candidates (seed
+8000: 14.96s, one near-miss; seed 10000: 16.70s, clean)?
+
+**What we investigated or changed:** Trained 10 fresh seeds (19000-28000)
+in parallel, identical locked-in config to every prior sweep -- doubling
+the batch size specifically to test whether a bigger single draw would
+be more sample-efficient than repeated batches of 5.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code computed the cumulative hit rate
+  across all 30 seeds sampled today (not just this batch) before
+  characterizing the result, which is what confirmed the ~6.7-10% rate is
+  stable rather than an artifact of a small early sample -- a finding
+  that directly informs whether continuing to sample is worth the
+  compute, not just whether this particular batch succeeded.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 31).
+- Experiment output: `experiments/2026-09-08_seed-sweep-v2-{19000..28000}/`
+  (10 directories, each with `config.yaml`, `metrics.csv`,
+  `eval_results.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** No strict improvement. Closest: seed 25000 (18.50s,
+5.75 laps, 0.0179 max damage), seed 24000 (19.49s, perfectly clean), seed
+21000 (20.04s, near-clean). The other 7 landed at 22.57-36.15s. Across
+all 30 genuine-init seeds sampled today, only 2 (8000, 10000) have
+landed in the 15-17s range -- a ~6.7% hit rate, consistent with the
+~10% estimate from the smaller sample two entries ago. Doubling the
+batch size did not reveal a hidden intermediate tier.
+
+**Decision and rationale:** Not launching further batches automatically.
+With 30 samples taken and the hit rate stable rather than improving,
+continuing pure random seed sampling is unlikely to reliably turn up a
+strict improvement without substantially more compute than has been
+spent so far today. This is a natural point to make a deliberate choice
+(accept one of the two existing candidates, or switch to a qualitatively
+different lever) rather than continue by default. `docs/rl_design.md`
+section 6 updated in the same session per CLAUDE.md step 5.
+
+**Next steps:**
+1. Awaiting direction: settle on 8000 or 10000, keep sampling anyway at
+   the now-known odds, or pursue fine-tuning from seed 10000 / the
+   controller-level safety backstop instead.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 12)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to fine-tune and optimize seed 8000 specifically, and asked for the
+command to watch it live. Claude Code (AI agent) -- gave the view
+command (already packaged, no env var needed), then ran two parallel
+resume experiments that found a checkpoint dominating both prior
+candidates, and repackaged from it.
+
+**Question or objective:** Can fine-tuning seed 8000 (rather than
+sampling new seeds) reduce its near-miss without losing its pace
+advantage?
+
+**What we investigated or changed:**
+
+- Gave the direct view commands for the currently-packaged checkpoint
+  (`uv run racing --student-module controllers.race_faster --seed 110`,
+  and an h2h/`--watch` variant, plus the exact seed/baseline combination
+  that reproduces the diagnosed near-miss).
+- Ran two `--resume-from` experiments in parallel from
+  `2026-09-08_seed-sweep-v2-8000/checkpoints/policy_final.pt`
+  (`--warmup-steps 0`, same seed 8000/round-length/reward/observation):
+  +10 races and +40 races. The shorter resume was chosen specifically
+  because earlier resume experiments this session (seeds 1000 and 2000)
+  showed +40-race resumes tend to converge toward a shared, more
+  conservative equilibrium -- a smaller nudge might catch a partial
+  improvement before that convergence took hold.
+- Verified the +10-resumed result was genuine (not an averaging artifact)
+  by pulling every individual race before treating it as a finding.
+- Repackaged `controllers.race_faster` from the +10-resumed checkpoint:
+  extracted the `"policy"` key, verified bit-for-bit match against
+  `SACAgent.act(..., deterministic=True)` (max diff 0.0), `ruff
+  check`/`ruff format --check`/`pyright` clean, and a real `racing h2h`
+  race (seed 110, 30s, vs. `crash_fast`) confirming correct driving.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code pulled every individual race for the
+  +10-resumed result before reporting it as a win, the same discipline
+  applied to every surprising number this session -- confirmed 18/20
+  exactly-zero-damage races and that the two non-zero cases were trivial
+  grazes, not a hidden second near-miss. Directly compared the
+  +10-resumed checkpoint against seed 10000 (not just the original seed
+  8000) to check whether it was a genuine dominant improvement or just
+  better than one of the two prior candidates -- it beat both.
+- Commits or code: `src/controllers/race_faster.py`,
+  `src/controllers/checkpoints/race_faster_policy.pt`,
+  `docs/rl_design.md` section 6 (causal test 32, item 8 repackaging
+  update).
+- Experiment output: `experiments/2026-09-08_seed8000-resumed-short/`,
+  `experiments/2026-09-08_seed8000-resumed/` (each with `config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: `artifacts/formula110-student-controllers.zip`
+  rebuilt via `scripts/export_student_controllers.py --all-controllers`;
+  not yet re-uploaded to Gradescope.
+
+**What we observed:**
+
+| | original (races=40) | +10 resumed | +40 resumed |
+| --- | --- | --- | --- |
+| avg best lap time | 14.96s | 15.54s | 16.36s |
+| avg laps | 7.30 | 6.75 | 7.05 |
+| avg damage | 0.0298 | 0.0004 | 0.0138 |
+| max damage (worst race) | 0.5942 | 0.0047 | 0.2764 |
+| avg max speed | 26.7 m/s | 30.3 m/s | 34.4 m/s |
+
++10 races finds a clear sweet spot -- the near-miss is essentially
+eliminated (126x smaller worst case) at a small pace cost (+3.9% lap
+time). +40 races overshoots it: the near-miss partially reappears and
+pace gets slower too, a non-monotonic curve rather than "more training
+= more safety." The +10-resumed checkpoint also strictly beats seed
+10000 (the separately-found safety alternative from two entries ago) on
+lap time, avg damage, and max damage.
+
+**Decision and rationale:** Adopted `2026-09-08_seed8000-resumed-short`
+as the new best/reference checkpoint and repackaged `race_faster.py`
+from it -- unlike the seed-8000-vs-seed-10000 choice, this one dominates
+every prior candidate rather than requiring a judgment call. Not
+adopting the +40 resume (worse than +10 on both axes, kept as evidence
+of the non-monotonicity). `docs/rl_design.md` section 6 updated in the
+same session per CLAUDE.md step 5.
+
+**Next steps:**
+1. A finer search around the sweet spot (+5, +15, +20 races) could find
+   an even better point, though the non-monotonicity means this isn't
+   guaranteed to improve smoothly.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 13)
+
+**Participants and contributions:** Charlotte Tsui -- asked how to
+reduce hesitation further; when told the current level was already
+modest and three reward-shaping attempts had failed, directed trying
+increased self-play traffic instead. Claude Code (AI agent) -- checked
+the current hesitation level against the record before proposing
+anything, gave an honest options list with the track record attached,
+then ran and reported a negative result on the chosen option.
+
+**Question or objective:** Can increasing self-play traffic
+(`--copies-per-side`) reduce car-contact/hesitation time on the current
+best checkpoint without the reward-shaping side effects seen three times
+already this session?
+
+**What we investigated or changed:** Before proposing anything, pulled
+the current checkpoint's own low-progress/car-contact numbers (2.83s
+avg low-progress at copies=1's origin, 3.30s on the fine-tuned current
+checkpoint, both with a modest worst case) to confirm hesitation was
+already fairly low, not a severe problem -- this is what motivated
+presenting a menu of options with an explicit track record (3 failed
+reward-shaping attempts) rather than jumping straight to a fourth
+variant. Ran `--copies-per-side 2` fresh on seed 8000, otherwise
+identical config, and compared against the copies=1 reference.
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code verified the copies=2 result was a
+  genuine, uniform regression (every one of 20 races at exactly 3 laps
+  and ~12 m/s) rather than an averaging artifact before reporting it,
+  and explicitly flagged the transitions/gradient-update confound
+  (doubling copies_per_side roughly doubles data collected per race) so
+  the result isn't over-attributed to "traffic diversity" specifically
+  when "effectively more training" is an equally plausible explanation
+  given this session's other findings about training-duration
+  sensitivity.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 33).
+- Experiment output: `experiments/2026-09-08_copies2-seed8000/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** A clear, uniform regression, not a fix. Avg
+car-contact time improved only modestly (1.70s -> 1.38s, ~19%) while avg
+best lap time more than doubled (15.54s -> 32.95s) and avg laps dropped
+by more than half (6.75 -> 3.00) -- consistently across every evaluated
+race, not a skewed average.
+
+**Decision and rationale:** Not adopted.
+`2026-09-08_seed8000-resumed-short` remains the reference checkpoint.
+This is the fourth consecutive hesitation-reduction attempt this session
+(after `WEIGHT_STEERING_REVERSAL`, both `WEIGHT_ROBOT_PROXIMITY`
+attempts, now this) to regress pace instead of cleanly improving
+hesitation -- treating the current checkpoint's hesitation level (2.8%
+of race time, no severe outlier) as close to a practical floor for this
+setup rather than an easily-closable gap. `docs/rl_design.md` section 6
+updated in the same session per CLAUDE.md step 5.
+
+**Next steps:**
+1. If self-play traffic is revisited, control for the gradient-update
+   confound (reduce `--races` proportionally when increasing
+   `--copies-per-side`) for a cleaner comparison.
+2. Otherwise, treat this thread as closed for now given the current
+   hesitation level.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-08 (continued, 14)
+
+**Participants and contributions:** Charlotte Tsui -- directed continuing
+to iterate until a clear improvement is found. Claude Code (AI agent) --
+ran the confound-controlled follow-up, got a decisive null result, and
+recommended closing the thread with the accumulated evidence rather than
+continuing to guess at further variants.
+
+**Question or objective:** With the previous entry's `copies_per_side=2`
+result confounded by ~2x the effective training budget, does a properly
+controlled version (denser traffic as a small fine-tune increment, not a
+full retrain) show a genuine hesitation improvement?
+
+**What we investigated or changed:** Fine-tuned the current best
+checkpoint (`2026-09-08_seed8000-resumed-short`) via `--resume-from`
+with `--copies-per-side 2 --races 10` -- a small dose, matching the
+successful "+10 races" pattern that fixed the earlier near-miss --
+rather than retraining from scratch, specifically to isolate "denser
+traffic" from "more total training."
+
+**Evidence:**
+- Sources or documentation: none beyond this session's own experiment
+  output.
+- AI-agent assistance: Claude Code designed this experiment specifically
+  to remove the exact confound it had flagged in the previous entry,
+  rather than treating the earlier ambiguous result as good enough to
+  act on either way. Compared the target metric (car-contact time)
+  directly against the reference before looking at anything else, which
+  is what made the "zero effect" finding immediate and unambiguous
+  rather than needing further interpretation.
+- Commits or code: `docs/rl_design.md` section 6 (causal test 34).
+- Experiment output: `experiments/2026-09-08_copies2-finetune-seed8000/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a.
+
+**What we observed:** Car-contact time was completely unchanged (1.70s
+-> 1.72s) while avg best lap time still regressed substantially (15.54s
+-> 24.37s) and avg laps dropped (6.75 -> 4.50). Unlike the confounded
+from-scratch version (which at least showed a modest ~19% car-contact
+improvement), this controlled version shows zero measurable effect on
+the metric it was specifically testing, while still costing pace.
+
+**Decision and rationale:** Not adopted. With the confound removed, the
+result is unambiguous: self-play traffic density is not a productive
+lever for hesitation reduction on this checkpoint, at any dose or
+procedure tested. Recommending this thread be closed -- across five
+independently-designed experiments this session (three reward-shaping
+terms, two self-play-traffic configurations), none has cleanly improved
+hesitation without a pace cost, and this last one specifically found no
+improvement at all even controlling for every confound identified along
+the way. Treating the current checkpoint's hesitation level (2.8% of
+race time, no severe outlier) as a practical floor for this setup.
+`docs/rl_design.md` section 6 updated in the same session per CLAUDE.md
+step 5.
+
+**Next steps:**
+1. Two genuinely untried levers remain if this is revisited: a
+   closing-speed-scaled competitor-proximity term (lower confidence --
+   may share the escape-hatch failure mode of the two distance-based
+   attempts), or a controller-level deterministic safety backstop
+   (structurally different -- an inference-time override, immune to the
+   failure mode every reward-based attempt has hit).
+2. Otherwise, accept the current checkpoint's hesitation level as final
+   for this track.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+---
+
+## 2026-09-09
+
+**Participants and contributions:** Charlotte Tsui -- accepted the
+current checkpoint's hesitation level as final and directed creating the
+Gradescope submission of the best controller so far. Claude Code (AI
+agent) -- rebuilt the submission zip per the documented process and
+verified its contents before calling it ready.
+
+**Question or objective:** Package the current best checkpoint
+(`2026-09-08_seed8000-resumed-short`, already loaded into
+`controllers/race_faster.py`) as a Gradescope-ready submission zip.
+
+**What we investigated or changed:** Confirmed `race_faster.py` still
+pointed at the current best checkpoint (it did -- no repackaging needed,
+this is the same module verified and packaged two sessions ago). Ran the
+documented submission recipe from `CLAUDE.md`'s "Packaging a Gradescope
+submission" section: `scripts/export_student_controllers.py
+--all-controllers` (rebuilt fresh, not reused from a stale prior run),
+then added the three required root-level files
+(`formula110-submission.json` with `controller_module:
+"controllers.race_faster"`, unmodified `pyproject.toml`, unmodified
+`uv.lock`) to `artifacts/formula110-student-controllers.zip`.
+
+**Evidence:**
+- Sources or documentation: `CLAUDE.md`'s "Packaging a Gradescope
+  submission" section (the documented recipe from the 2026-09-01 upload
+  failure).
+- AI-agent assistance: Claude Code did not reuse the existing
+  `artifacts/` zip from an earlier session without checking it was
+  current -- rebuilt it fresh via the export script, then verified with
+  `unzip -l` that the packaged checkpoint
+  (`controllers/checkpoints/race_faster_policy.pt`, 84,711 bytes) matches
+  the current best checkpoint on disk (same size, same modification time
+  as when it was packaged from `seed8000-resumed-short`) before calling
+  the submission ready, per the standing checklist.
+- Commits or code: none (packaging output only; `artifacts/` is
+  gitignored build output, not source).
+- Experiment output: n/a -- packaging, not a new training run. Source
+  checkpoint: `experiments/2026-09-08_seed8000-resumed-short/`.
+- Leaderboard result: `artifacts/formula110-student-controllers.zip`
+  built and verified locally; not yet uploaded to Gradescope this
+  session (uploading itself is a separate, external action for Charlotte
+  to take).
+
+**What we observed:** The zip contains all three required root files
+(`formula110-submission.json`, `pyproject.toml`, `uv.lock`) alongside the
+`controllers/` tree (`__init__.py`, `crash_fast.py`, `py.typed`,
+`race_faster.py`, its trimmed checkpoint, and the `sac_candidate.py` dev
+viewer, included harmlessly since Gradescope only grades the configured
+module name).
+
+**Decision and rationale:** Treating this submission as ready for upload.
+No code changes were needed -- the best-controller decision and its
+packaging were already done two sessions ago; this session's job was
+producing a fresh, verified zip rather than trusting a possibly-stale
+build artifact left over from then.
+
+**Next steps:**
+1. Charlotte to upload `artifacts/formula110-student-controllers.zip` to
+   Gradescope (external action, not done by this session).
+2. Still open: the `controllers.minimum_viable` module gap -- without it
+   the submission is capped at partial rubric points regardless of how
+   good `race_faster` is.

@@ -137,8 +137,9 @@ class SACAgent:
         rewards = torch.as_tensor(batch.rewards, dtype=torch.float32).unsqueeze(-1)
         next_observations = torch.as_tensor(batch.next_observations, dtype=torch.float32)
         dones = torch.as_tensor(batch.dones, dtype=torch.float32).unsqueeze(-1)
+        discounts = torch.as_tensor(batch.discounts, dtype=torch.float32).unsqueeze(-1)
 
-        critic_loss = self._update_critics(observations, actions, rewards, next_observations, dones)
+        critic_loss = self._update_critics(observations, actions, rewards, next_observations, dones, discounts)
         actor_loss, mean_log_prob = self._update_actor(observations)
         alpha_loss = self._update_alpha(mean_log_prob)
         self._soft_update_targets()
@@ -151,7 +152,13 @@ class SACAgent:
         }
 
     def _update_critics(
-        self, observations: Tensor, actions: Tensor, rewards: Tensor, next_observations: Tensor, dones: Tensor
+        self,
+        observations: Tensor,
+        actions: Tensor,
+        rewards: Tensor,
+        next_observations: Tensor,
+        dones: Tensor,
+        discounts: Tensor,
     ) -> float:
         with torch.no_grad():
             next_actions, next_log_probs = self.policy.sample(next_observations)
@@ -160,7 +167,10 @@ class SACAgent:
                 self.q2_target(next_observations, next_actions),
             )
             target_q -= self.alpha * next_log_probs
-            target_value = rewards + (1.0 - dones) * self.gamma * target_q
+            # `discounts` is gamma**n per-transition (not the scalar self.gamma), since an
+            # n-step transition bootstraps n ticks ahead -- see training.replay_buffer and
+            # training.controller's n-step windowing.
+            target_value = rewards + (1.0 - dones) * discounts * target_q
 
         current_q1 = self.q1(observations, actions)
         current_q2 = self.q2(observations, actions)

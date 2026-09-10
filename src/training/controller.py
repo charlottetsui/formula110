@@ -10,6 +10,7 @@ feeding one policy.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -24,6 +25,18 @@ from training.trajectory import WEIGHT_TRAJECTORY_BONUS, BestTrajectoryTracker, 
 DEFAULT_WARMUP_STEPS = 1_000
 DEFAULT_UPDATE_EVERY_N_STEPS = 4
 DEFAULT_BATCH_SIZE = 256
+DEFAULT_N_STEP = 1
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingStep:
+    """One raw, single-tick transition awaiting inclusion in an n-step window."""
+
+    observation: np.ndarray
+    action: np.ndarray
+    reward: float
+    next_observation: np.ndarray
+    done: bool
 
 
 @dataclass
@@ -36,6 +49,7 @@ class TrainingState:
     warmup_steps: int = DEFAULT_WARMUP_STEPS
     update_every_n_steps: int = DEFAULT_UPDATE_EVERY_N_STEPS
     batch_size: int = DEFAULT_BATCH_SIZE
+    n_step: int = DEFAULT_N_STEP
     trajectory: BestTrajectoryTracker | None = None
     global_step: int = 0
     update_metrics: list[dict[str, float]] = field(default_factory=list)
@@ -88,6 +102,7 @@ class TrainableController:
         self._previous_observation: np.ndarray | None = None
         self._previous_action: np.ndarray | None = None
         self._trajectory_snapshot: np.ndarray | None = None
+        self._n_step_window: deque[_PendingStep] = deque()
 
     def __call__(self, sensors: RobotSensors) -> RobotCommand:
         observation = encode_observation(sensors)
@@ -110,12 +125,14 @@ class TrainableController:
                     current_distance_m=sensors.odometry.distance_m,
                 )
                 self._state.trajectory.update(tick=sensors.tick, distance_m=sensors.odometry.distance_m)
-            self._state.buffer.push(
-                self._previous_observation,
-                self._previous_action,
-                reward,
-                observation,
-                is_terminal(sensors),
+            self._push_n_step(
+                _PendingStep(
+                    observation=self._previous_observation,
+                    action=self._previous_action,
+                    reward=reward,
+                    next_observation=observation,
+                    done=is_terminal(sensors),
+                )
             )
             self._state.record_step()
             self._state.maybe_update()
@@ -125,6 +142,50 @@ class TrainableController:
         self._previous_observation = observation
         self._previous_action = action
         return RobotCommand(throttle=float(action[0]), steer=float(action[1]))
+
+    def _push_n_step(self, step: _PendingStep) -> None:
+        """Buffer one raw tick, pushing a completed n-step transition to the shared buffer.
+
+        Holds up to `self._state.n_step` raw ticks in a per-car sliding window;
+        once it reaches that size, the oldest tick's n-step return (discounted
+        sum of the window's rewards, bootstrapping `gamma**n` ticks ahead) is
+        pushed and the window slides forward by one. If `step.done`, there are
+        no further ticks coming to complete the remaining partial windows, so
+        every window still pending is flushed immediately instead of waiting
+        to fill -- each bootstraps from the terminal tick with `done=True`
+        (see docs/rl_design.md section 4 for why this shortens the credit-
+        assignment path from a risky action to a delayed crash penalty).
+        """
+        self._n_step_window.append(step)
+        if step.done:
+            while self._n_step_window:
+                self._emit_n_step_window(tuple(self._n_step_window))
+                self._n_step_window.popleft()
+            return
+        if len(self._n_step_window) >= self._state.n_step:
+            self._emit_n_step_window(tuple(self._n_step_window))
+            self._n_step_window.popleft()
+
+    def _emit_n_step_window(self, window: tuple[_PendingStep, ...]) -> None:
+        gamma = self._state.agent.gamma
+        discounted_reward = 0.0
+        discount = 1.0
+        reached_done = False
+        for pending_step in window:
+            discounted_reward += discount * pending_step.reward
+            discount *= gamma
+            if pending_step.done:
+                reached_done = True
+                break
+        first, last = window[0], window[-1]
+        self._state.buffer.push(
+            first.observation,
+            first.action,
+            discounted_reward,
+            last.next_observation,
+            reached_done,
+            discount=discount,
+        )
 
     def _select_action(self, observation: np.ndarray) -> np.ndarray:
         if self.training and len(self._state.buffer) < self._state.warmup_steps:

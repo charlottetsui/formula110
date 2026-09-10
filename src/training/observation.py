@@ -15,11 +15,22 @@ from racing.student.api import RobotSensors
 
 MAX_SPEED_MPS = 20.0
 WALL_LIDAR_CAP_M = 20.0
+OBSTACLE_LIDAR_CAP_M = 20.0
 CENTER_OFFSET_CAP_M = 5.0
 LOOKAHEAD_OFFSET_CAP_M = 5.0
 YAW_RATE_CAP_DEGREES_PER_S = 180.0
 
 WALL_LIDAR_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-90.0, -45.0, -20.0, 0.0, 20.0, 45.0, 90.0)
+# `sensors.lidar` (as opposed to `sensors.wall_lidar`) detects "nearby barriers,
+# robots, and blockers" (racing.student.api.RobotSensors docstring) -- i.e. it's the
+# only public signal that sees other cars at all. Added 2026-09-07 after diagnosing
+# recurring low-progress time in evaluation races: the policy was colliding with a
+# stationary opponent car once per lap at the same track position, with zero
+# wall-contact -- `camera.competitors`/`sensors.lidar` had been deferred by the
+# original design (docs/rl_design.md section 2.1) until solo-track driving was
+# solid, which it now is (zero damage/off-track/wall-contact at the current best
+# checkpoint). Reusing the same beam angles/scaling as wall_lidar for consistency.
+OBSTACLE_LIDAR_BEAM_ANGLES_DEGREES: tuple[float, ...] = WALL_LIDAR_BEAM_ANGLES_DEGREES
 LOOKAHEAD_COUNT = 3
 
 OBSERVATION_DIM = (
@@ -28,6 +39,7 @@ OBSERVATION_DIM = (
     + 1  # center offset
     + LOOKAHEAD_COUNT  # lookahead offsets
     + len(WALL_LIDAR_BEAM_ANGLES_DEGREES)  # wall lidar beams
+    + len(OBSTACLE_LIDAR_BEAM_ANGLES_DEGREES)  # nearby-obstacle (wall/robot) lidar beams
     + 1  # yaw rate
     + 1  # wall contact flag
     + 1  # robot contact flag
@@ -41,6 +53,10 @@ def encode_observation(sensors: RobotSensors) -> np.ndarray:
         _scale_distance(sensors.wall_lidar.distance_at_angle_degrees(angle_degrees), cap=WALL_LIDAR_CAP_M)
         for angle_degrees in WALL_LIDAR_BEAM_ANGLES_DEGREES
     )
+    obstacle_beams = tuple(
+        _scale_distance(sensors.lidar.distance_at_angle_degrees(angle_degrees), cap=OBSTACLE_LIDAR_CAP_M)
+        for angle_degrees in OBSTACLE_LIDAR_BEAM_ANGLES_DEGREES
+    )
     lookahead = _padded_lookahead(sensors.camera.lookahead_offsets_m)
     features = (
         _clip_ratio(sensors.odometry.speed_mps, MAX_SPEED_MPS),
@@ -48,6 +64,7 @@ def encode_observation(sensors: RobotSensors) -> np.ndarray:
         _clip_ratio(sensors.camera.center_offset_m, CENTER_OFFSET_CAP_M),
         *(_clip_ratio(offset_m, LOOKAHEAD_OFFSET_CAP_M) for offset_m in lookahead),
         *wall_beams,
+        *obstacle_beams,
         _clip_ratio(sensors.imu.yaw_rate_degrees_per_s, YAW_RATE_CAP_DEGREES_PER_S),
         1.0 if sensors.contact.wall > 0.0 else 0.0,
         1.0 if sensors.contact.robot > 0.0 else 0.0,

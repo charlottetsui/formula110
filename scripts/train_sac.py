@@ -24,6 +24,7 @@ import numpy as np
 from racing.race.head_to_head import run_headless_head_to_head
 from training.controller import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_N_STEP,
     DEFAULT_UPDATE_EVERY_N_STEPS,
     DEFAULT_WARMUP_STEPS,
     TrainableController,
@@ -50,6 +51,7 @@ class TrainSacArguments:
     warmup_steps: int
     update_every_n_steps: int
     batch_size: int
+    n_step: int
     hidden_size: int
     trajectory_bonus: bool
     resume_from: Path | None
@@ -64,11 +66,30 @@ def parse_args() -> TrainSacArguments:
     parser.add_argument("--races", type=int, default=6, help="self-play races to train over")
     parser.add_argument("--round-seconds", type=float, default=15.0, help="seconds per self-play race")
     parser.add_argument("--copies-per-side", type=int, default=1, help="cars per side during self-play")
-    parser.add_argument("--seed", type=int, default=110, help="random seed for self-play race spawns")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=110,
+        help=(
+            "random seed for self-play race spawns, the SACAgent's network initialization, and the "
+            "training RNG (warmup actions, replay-buffer sampling order) -- controls every source of "
+            "run-to-run stochasticity except torch's own internal nondeterminism"
+        ),
+    )
     parser.add_argument("--buffer-capacity", type=int, default=50_000)
     parser.add_argument("--warmup-steps", type=int, default=DEFAULT_WARMUP_STEPS)
     parser.add_argument("--update-every-n-steps", type=int, default=DEFAULT_UPDATE_EVERY_N_STEPS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--n-step",
+        type=int,
+        default=DEFAULT_N_STEP,
+        help=(
+            "ticks of real reward summed per transition before bootstrapping (default 1, "
+            "i.e. standard 1-step TD); see docs/rl_design.md section 4 for the credit-"
+            "assignment rationale"
+        ),
+    )
     parser.add_argument("--hidden-size", type=int, default=128)
     parser.add_argument(
         "--trajectory-bonus",
@@ -103,6 +124,7 @@ def parse_args() -> TrainSacArguments:
         warmup_steps=arguments.warmup_steps,
         update_every_n_steps=arguments.update_every_n_steps,
         batch_size=arguments.batch_size,
+        n_step=arguments.n_step,
         hidden_size=arguments.hidden_size,
         trajectory_bonus=arguments.trajectory_bonus,
         resume_from=arguments.resume_from,
@@ -128,6 +150,7 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         observation_dim=OBSERVATION_DIM,
         action_dim=ACTION_DIM,
         hidden_sizes=(args.hidden_size, args.hidden_size),
+        seed=args.seed,
     )
     if args.resume_from is not None:
         agent.load(args.resume_from)
@@ -141,6 +164,7 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         warmup_steps=args.warmup_steps,
         update_every_n_steps=args.update_every_n_steps,
         batch_size=args.batch_size,
+        n_step=args.n_step,
         trajectory=trajectory,
     )
     challenger = TrainableController(state=state, training=True)

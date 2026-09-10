@@ -161,6 +161,67 @@ def test_trajectory_tracker_is_updated_from_controller_calls() -> None:
     assert bonus == pytest.approx(1.0 - 3.0)
 
 
+def test_n_step_one_matches_previous_single_step_behavior() -> None:
+    state = _training_state()  # n_step defaults to 1
+    controller = TrainableController(state=state, training=True)
+    controller(_sensors(tick=0))
+
+    controller(_sensors(tick=1))
+
+    assert len(state.buffer) == 1  # one push per tick, same as before n-step existed
+
+
+def test_n_step_three_holds_transitions_until_the_window_fills() -> None:
+    state = _training_state()
+    state.n_step = 3
+    controller = TrainableController(state=state, training=True)
+    controller(_sensors(tick=0))
+    controller(_sensors(tick=1))  # 1st raw tick buffered, window not yet full
+    assert len(state.buffer) == 0
+
+    controller(_sensors(tick=2))  # 2nd raw tick buffered, window not yet full
+    assert len(state.buffer) == 0
+
+    controller(_sensors(tick=3))  # 3rd raw tick completes the window -- one push now
+
+    assert len(state.buffer) == 1
+
+
+def test_n_step_return_is_the_discounted_sum_of_the_window() -> None:
+    state = _training_state()
+    state.n_step = 3
+    gamma = state.agent.gamma
+    controller = TrainableController(state=state, training=True)
+
+    controller(_sensors(tick=0, distance_m=0.0))
+    controller(_sensors(tick=1, distance_m=1.0))
+    controller(_sensors(tick=2, distance_m=1.0))  # no further progress -- isolates each tick's reward
+    controller(_sensors(tick=3, distance_m=1.0))
+
+    transition = state.buffer.sample(1, rng=np.random.default_rng(0))
+    # step_reward is deterministic given fixed sensors, so the 3 per-tick rewards are equal;
+    # the n-step return must be their discounted sum, and the discount must be gamma**3.
+    single_step_reward = transition.rewards[0] / (1 + gamma + gamma**2)
+    assert transition.discounts[0] == pytest.approx(gamma**3, abs=1e-5)
+    assert single_step_reward > 0  # sanity check the reward isn't trivially zero
+
+
+def test_n_step_flushes_every_partial_window_immediately_on_termination() -> None:
+    state = _training_state()
+    state.n_step = 5
+    controller = TrainableController(state=state, training=True)
+    controller(_sensors(tick=0))
+    controller(_sensors(tick=1))  # buffers raw tick [0->1], window not yet full at n_step=5
+
+    controller(_sensors(tick=2, damage=0.95))  # terminal -- flushes both pending windows now
+
+    # two raw ticks were pending ([0->1], [1->2]); termination flushes one n-step
+    # transition per remaining window start ([0->1,1->2] and [1->2]), not just one.
+    assert len(state.buffer) == 2
+    transitions = state.buffer.sample(2, rng=np.random.default_rng(0))
+    assert (transitions.dones == 1.0).all()
+
+
 def test_warmup_actions_are_random_until_buffer_reaches_warmup_steps() -> None:
     state = _training_state(warmup_steps=1_000)
     controller = TrainableController(state=state, training=True)
