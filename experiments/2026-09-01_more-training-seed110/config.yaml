@@ -1,0 +1,19 @@
+races: 20
+round_seconds: 120.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 400000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-01_more-training-seed110
+git_commit: a8186da454e26aba74a1baf6facfd22ea90f71e7
+training_seconds: 184.44
+transitions_collected: 242262
+gradient_updates: 60316
+observation_dim: 17
+action_dim: 2

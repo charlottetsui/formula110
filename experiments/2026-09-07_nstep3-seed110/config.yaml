@@ -1,0 +1,22 @@
+races: 40
+round_seconds: 120.0
+copies_per_side: 1
+seed: 110
+buffer_capacity: 800000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+n_step: 3
+hidden_size: 128
+trajectory_bonus: False
+resume_from: None
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-04_nstep3-seed110
+git_commit: 66b12ca1b05aa452361c05437239bc45f87e4eb2
+training_seconds: 448.74
+transitions_collected: 570114
+gradient_updates: 142318
+observation_dim: 17
+action_dim: 2

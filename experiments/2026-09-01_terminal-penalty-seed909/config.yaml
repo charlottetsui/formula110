@@ -1,0 +1,19 @@
+races: 10
+round_seconds: 60.0
+copies_per_side: 1
+seed: 909
+buffer_capacity: 150000
+warmup_steps: 1000
+update_every_n_steps: 4
+batch_size: 256
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-01_terminal-penalty-seed909
+git_commit: dc02eed46734990bbf610617722d53323eb3f27d
+training_seconds: 55.03
+transitions_collected: 72000
+gradient_updates: 17751
+observation_dim: 17
+action_dim: 2

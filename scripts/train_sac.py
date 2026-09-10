@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Run a self-play SAC training run and evaluate it against a baseline controller.
+"""Run a self-play SAC training run and evaluate it against baseline controllers.
 
 Implements the minimum experiment from docs/rl_design.md section 5: train
 via self-play (`run_headless_head_to_head` with both sides pointing at the
 same in-training policy, per section 3), then evaluate the frozen policy
-against `controllers.crash_fast` across a fixed multi-seed evaluation set.
-All evidence is written under `experiments/<slug>/` per
-`experiments/README.md`.
+against every baseline in `training.evaluation.BASELINE_CONTROLLERS`
+across a fixed multi-seed evaluation set. All evidence is written under
+`experiments/<slug>/` per `experiments/README.md`.
 """
 
 from __future__ import annotations
@@ -21,18 +21,20 @@ from pathlib import Path
 
 import numpy as np
 
-from controllers.crash_fast import control as crash_fast_control
-from racing.race.head_to_head import HeadToHeadResult, HeadToHeadRole, run_headless_head_to_head
+from racing.race.head_to_head import run_headless_head_to_head
 from training.controller import (
     DEFAULT_BATCH_SIZE,
+    DEFAULT_N_STEP,
     DEFAULT_UPDATE_EVERY_N_STEPS,
     DEFAULT_WARMUP_STEPS,
     TrainableController,
     TrainingState,
 )
+from training.evaluation import evaluate_against_baselines, role_distance_m
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
+from training.trajectory import BestTrajectoryTracker
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_EVAL_SEEDS: tuple[int, ...] = (110, 42, 7, 2024, 8675309)
@@ -49,7 +51,10 @@ class TrainSacArguments:
     warmup_steps: int
     update_every_n_steps: int
     batch_size: int
+    n_step: int
     hidden_size: int
+    trajectory_bonus: bool
+    resume_from: Path | None
     eval_seeds: tuple[int, ...]
     eval_races: int
     eval_round_seconds: float
@@ -61,12 +66,50 @@ def parse_args() -> TrainSacArguments:
     parser.add_argument("--races", type=int, default=6, help="self-play races to train over")
     parser.add_argument("--round-seconds", type=float, default=15.0, help="seconds per self-play race")
     parser.add_argument("--copies-per-side", type=int, default=1, help="cars per side during self-play")
-    parser.add_argument("--seed", type=int, default=110, help="random seed for self-play race spawns")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=110,
+        help=(
+            "random seed for self-play race spawns, the SACAgent's network initialization, and the "
+            "training RNG (warmup actions, replay-buffer sampling order) -- controls every source of "
+            "run-to-run stochasticity except torch's own internal nondeterminism"
+        ),
+    )
     parser.add_argument("--buffer-capacity", type=int, default=50_000)
     parser.add_argument("--warmup-steps", type=int, default=DEFAULT_WARMUP_STEPS)
     parser.add_argument("--update-every-n-steps", type=int, default=DEFAULT_UPDATE_EVERY_N_STEPS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        "--n-step",
+        type=int,
+        default=DEFAULT_N_STEP,
+        help=(
+            "ticks of real reward summed per transition before bootstrapping (default 1, "
+            "i.e. standard 1-step TD); see docs/rl_design.md section 4 for the credit-"
+            "assignment rationale"
+        ),
+    )
     parser.add_argument("--hidden-size", type=int, default=128)
+    parser.add_argument(
+        "--trajectory-bonus",
+        action="store_true",
+        help="reward relative to the best-known distance-at-tick seen so far this run (training.trajectory)",
+    )
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        default=None,
+        metavar="CHECKPOINT",
+        help=(
+            "fine-tune from an existing checkpoint's saved policy/critics/log_alpha "
+            "(a SACAgent.save() file with include_training_state=True) instead of a fresh "
+            "random init -- --hidden-size must match the checkpoint's architecture. The "
+            "replay buffer and critic optimizer momentum are NOT resumed (start empty/fresh), "
+            "and --warmup-steps still defaults to random actions before using the policy -- "
+            "pass --warmup-steps 0 to use the resumed policy's actions from the first tick"
+        ),
+    )
     parser.add_argument("--eval-seeds", type=int, nargs="+", default=list(DEFAULT_EVAL_SEEDS))
     parser.add_argument("--eval-races", type=int, default=2, help="head-to-head races per evaluation seed")
     parser.add_argument("--eval-round-seconds", type=float, default=20.0)
@@ -81,18 +124,14 @@ def parse_args() -> TrainSacArguments:
         warmup_steps=arguments.warmup_steps,
         update_every_n_steps=arguments.update_every_n_steps,
         batch_size=arguments.batch_size,
+        n_step=arguments.n_step,
         hidden_size=arguments.hidden_size,
+        trajectory_bonus=arguments.trajectory_bonus,
+        resume_from=arguments.resume_from,
         eval_seeds=tuple(arguments.eval_seeds),
         eval_races=arguments.eval_races,
         eval_round_seconds=arguments.eval_round_seconds,
         experiment_dir=arguments.experiment_dir,
-    )
-
-
-def role_distance_m(result: HeadToHeadResult, role: HeadToHeadRole) -> float:
-    """Sum one side's scored distance across every race in a `HeadToHeadResult`."""
-    return sum(
-        (race.challenger if role == "challenger" else race.incumbent).team_sum_distance_m for race in result.races
     )
 
 
@@ -111,8 +150,13 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         observation_dim=OBSERVATION_DIM,
         action_dim=ACTION_DIM,
         hidden_sizes=(args.hidden_size, args.hidden_size),
+        seed=args.seed,
     )
+    if args.resume_from is not None:
+        agent.load(args.resume_from)
+        print(f"[train] resumed policy/critics/log_alpha from {args.resume_from}")
     buffer = ReplayBuffer(capacity=args.buffer_capacity, observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM)
+    trajectory = BestTrajectoryTracker(max_ticks=int(args.round_seconds * 60) + 1) if args.trajectory_bonus else None
     state = TrainingState(
         agent=agent,
         buffer=buffer,
@@ -120,6 +164,8 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         warmup_steps=args.warmup_steps,
         update_every_n_steps=args.update_every_n_steps,
         batch_size=args.batch_size,
+        n_step=args.n_step,
+        trajectory=trajectory,
     )
     challenger = TrainableController(state=state, training=True)
     incumbent = TrainableController(state=state, training=True)
@@ -144,35 +190,6 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
         f"b={role_distance_m(result, 'incumbent'):.1f}m over {args.races} race(s)"
     )
     return agent, state, training_seconds
-
-
-def evaluate(agent: SACAgent, args: TrainSacArguments) -> list[dict[str, object]]:
-    eval_state = TrainingState(
-        agent=agent,
-        buffer=ReplayBuffer(capacity=1, observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM),
-        rng=np.random.default_rng(0),
-    )
-    per_seed_results: list[dict[str, object]] = []
-    for seed in args.eval_seeds:
-        trained_controller = TrainableController(state=eval_state, training=False)
-        result = run_headless_head_to_head(
-            challenger_controller=trained_controller,
-            incumbent_controller=crash_fast_control,
-            challenger_name="sac-trained",
-            incumbent_name="crash_fast",
-            race_count=args.eval_races,
-            round_seconds=args.eval_round_seconds,
-            random_seed=seed,
-        )
-        record = result.to_dict()
-        record["eval_seed"] = seed
-        per_seed_results.append(record)
-        print(
-            f"[eval] seed={seed}: sac-trained {role_distance_m(result, 'challenger'):.1f}m vs "
-            f"crash_fast {role_distance_m(result, 'incumbent'):.1f}m "
-            f"(sac wins {result.challenger_wins}/{result.race_count})"
-        )
-    return per_seed_results
 
 
 def write_config(
@@ -211,7 +228,9 @@ def main() -> None:
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     agent, state, training_seconds = train(args)
-    eval_results = evaluate(agent, args)
+    eval_results = evaluate_against_baselines(
+        agent, eval_seeds=args.eval_seeds, eval_races=args.eval_races, eval_round_seconds=args.eval_round_seconds
+    )
 
     agent.save(checkpoints_dir / "policy_final.pt", include_training_state=True)
     write_config(

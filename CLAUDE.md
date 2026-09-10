@@ -20,6 +20,89 @@ decisions already recorded there.
 | `src/training/` | SAC implementation (replay buffer, actor/critic networks, training loop) — not yet created as of 2026-08-31. |
 | `src/controllers/` | Where the trained, frozen-weights controller gets packaged for racing/leaderboard submission, per `README.md`'s packaging contract. |
 
+## What can and cannot be edited
+
+This repo is a course-provided simulator plus a student-owned track.
+Verified 2026-09-01: `git diff 2e2aee4 HEAD -- src/racing/ autograder/`
+is empty, and none of Charlotte's SAC-track commits (`2b0b5c7`, `2c94b42`,
+`92a0bc7`) touch `src/racing/`, `autograder/`, or any pre-existing
+`tests/`/`scripts/` file — only new files were added alongside them.
+
+**Do not edit — course-provided reference/infrastructure:**
+
+| Path | Why |
+| --- | --- |
+| `src/racing/` | The simulator engine (physics, graphics, race rules, track, sensors, student API contract). The self-play design exists specifically to avoid needing to touch this — see step 9 below. |
+| `autograder/` | Gradescope grading infrastructure, built from a trusted read-only bundle of the simulator. |
+| `README.md`, `GETTING_STARTED.md`, `SENSORS.md`, `LICENSE` | Course-authored reference docs describing the public contract. |
+| `tests/` — every file except `tests/test_training_*.py` | Simulator/autograder contract tests owned by the course. |
+| `scripts/` — every file except `scripts/train_sac.py`, `scripts/eval_sac.py` (or later SAC-track scripts) | Course-provided tooling (asset capture, gamepad diagnostics, Gradescope packaging). |
+| `src/controllers/crash_fast.py` | The course-provided starter controller, kept as a reference example. |
+
+**Freely editable — this track's own work:**
+
+| Path | Notes |
+| --- | --- |
+| `docs/rl_design.md`, `docs/lab_notebook.md` | This track's design doc and log. |
+| `experiments/` | Per-run evidence. |
+| `src/training/` | SAC implementation. |
+| `src/controllers/` (any file other than `crash_fast.py`, e.g. `sac_candidate.py`) | Trained controllers packaged for racing. |
+| `scripts/train_sac.py`, `scripts/eval_sac.py` (and later SAC-track scripts) | This track's training/eval entry points. |
+| `tests/test_training_*.py` | Tests for `src/training/`, added on this track. |
+| `CLAUDE.md` | This file. |
+| `pyproject.toml`, `uv.lock` | Only via `uv add` / `uv sync --managed-python` per step 8 below — never hand-edited directly. |
+
+If a task seems to require changing something in the "do not edit" list,
+stop and flag it rather than editing — that usually means the task is
+out of scope for this track (per step 9) rather than something to route
+around silently.
+
+## Packaging a Gradescope submission
+
+Discovered 2026-09-01 via a real failed upload ("expected
+formula110-submission.json at the root of the submission"): the **live**
+Gradescope autograder for this assignment expects a submission contract
+that this repo's checked-in `autograder/` bundle and
+`scripts/export_student_controllers.py` do not know about or document —
+confirmed by grep, there is no reference to a submission manifest
+anywhere in `autograder/`, `README.md`, or `autograder/README.md` as
+currently checked in. Treat the live Gradescope side as authoritative
+over the local docs here whenever they conflict, per step 1's general
+rule about trusting observed reality over stale plans.
+
+Every time a submission zip is built for upload, do this in addition to
+`scripts/export_student_controllers.py` (which only produces the
+`controllers/` tree and has no flag for the following — it's
+course-provided infra, do not edit it to add one; append these files to
+its output zip after running it instead):
+
+1. Run the export as usual, e.g.
+   `uv run python scripts/export_student_controllers.py --all-controllers`
+   (`--all-controllers` is required whenever the controller module bundles
+   non-Python files, such as a checkpoint).
+2. Add three files to the **root** of that zip (not under `controllers/`):
+   - `formula110-submission.json`:
+     ```json
+     {
+       "schema_version": 1,
+       "controller_module": "controllers.<the module being submitted>"
+     }
+     ```
+     Set `controller_module` to whichever module this submission is
+     grading as the controller (e.g. `controllers.race_faster`).
+   - An unmodified copy of `pyproject.toml` from the repo root.
+   - An unmodified copy of `uv.lock` from the repo root.
+3. Verify the zip's contents (`unzip -l`) before calling the submission
+   ready — confirm all three root files are present alongside
+   `controllers/`.
+
+As a single command (adjust `controller_module` if submitting a different
+module than `controllers.race_faster`):
+
+```bash
+uv run python scripts/export_student_controllers.py --all-controllers && printf '{\n  "schema_version": 1,\n  "controller_module": "controllers.race_faster"\n}\n' > artifacts/formula110-submission.json && zip -j artifacts/formula110-student-controllers.zip artifacts/formula110-submission.json pyproject.toml uv.lock
+```
+
 ## Explicit steps to follow every session
 
 1. **Orient before acting.** Read `docs/rl_design.md` and the last 1–2
