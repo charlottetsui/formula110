@@ -20,6 +20,7 @@ from racing.physics import (
 )
 from racing.race.progress import (
     TrackProjection,
+    build_track_progress_model,
     default_track_progress_model,
     project_track_position,
 )
@@ -43,6 +44,7 @@ from racing.race.runtime import (
 )
 from racing.race.sensors import build_robot_sensors
 from racing.student.api import RobotController, RobotSensors
+from racing.track.world import TrackPoint
 
 HEAD_TO_HEAD_DEFAULT_RACE_COUNT = 7
 HEAD_TO_HEAD_COPIES_PER_SIDE = 1
@@ -414,8 +416,14 @@ def run_headless_head_to_head(
     incumbent_copies: int | None = None,
     fixed_delta_seconds: float = 1 / 60,
     sensor_sample_callback: Callable[[HeadToHeadRaceEntry, RobotSensors], None] | None = None,
+    track_samples: tuple[TrackPoint, ...] | None = None,
 ) -> HeadToHeadResult:
-    """Run deterministic headless races between two student controllers."""
+    """Run races; optional centerline samples drive both collisions and sensors.
+
+    Omit track_samples for the official default. Callers using custom geometry
+    should retain those samples alongside result metadata for reproducibility.
+    Geometry is simulator configuration and is never passed to controllers.
+    """
     if race_count < 1:
         raise ValueError("race_count must be at least one")
     if round_seconds <= 0.0:
@@ -448,6 +456,7 @@ def run_headless_head_to_head(
                 incumbent_copies=resolved_incumbent_copies,
                 fixed_delta_seconds=fixed_delta_seconds,
                 sensor_sample_callback=sensor_sample_callback,
+                track_samples=track_samples,
             )
             for race_index in range(1, race_count + 1)
         )
@@ -867,12 +876,13 @@ def _run_headless_student_race(
     incumbent_copies: int,
     fixed_delta_seconds: float,
     sensor_sample_callback: Callable[[HeadToHeadRaceEntry, RobotSensors], None] | None = None,
+    track_samples: tuple[TrackPoint, ...] | None = None,
 ) -> HeadToHeadRaceResult:
-    model = default_track_progress_model()
+    model = default_track_progress_model() if track_samples is None else build_track_progress_model(track_samples)
     physics_world = create_physics_world()
     physics_scene = PhysicsScene(world=physics_world, vehicles=[])
     root = render.attachNewNode(f"headless-h2h-{race_index}")
-    add_racing_scene_collisions(physics_world=physics_world, render=root)
+    add_racing_scene_collisions(physics_world=physics_world, render=root, samples=track_samples)
     entries = head_to_head_race_entries(
         race_index=race_index,
         random_seed=random_seed,
