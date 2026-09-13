@@ -34,6 +34,10 @@ def provenance() -> dict[str, object]:
         "src/controllers/imitation.py",
         "src/training/imitation.py",
         "src/training/sac.py",
+        "src/training/imitation_round2.py",
+        "src/training/track_scenarios.py",
+        "src/training/imitation_handoff.py",
+        "src/racing/race/head_to_head.py",
         "uv.lock",
     ]
     return {
@@ -153,7 +157,13 @@ def export_policy(policy: GaussianPolicy, path: Path) -> None:
 
 
 def fit(
-    dataset: Path, directory: Path, validation_seeds: list[int], epochs: int, seed: int, hidden_size: int = 128
+    dataset: Path,
+    directory: Path,
+    validation_seeds: list[int],
+    epochs: int,
+    seed: int,
+    hidden_size: int = 128,
+    initial_actor: Path | None = None,
 ) -> None:
     if epochs < 1 or hidden_size < 1:
         raise ValueError("Epochs and hidden size must be positive")
@@ -181,6 +191,11 @@ def fit(
         raise ValueError("Need nonempty training and validation seed groups")
     directory.mkdir(parents=True, exist_ok=False)
     policy = GaussianPolicy(observation_dim=OBSERVATION_DIM, action_dim=2, hidden_sizes=(hidden_size, hidden_size))
+    if initial_actor is not None:
+        payload = torch.load(initial_actor, map_location="cpu", weights_only=True)
+        if payload["feature_version"] != FEATURE_VERSION or payload["observation_dim"] != OBSERVATION_DIM:
+            raise ValueError("Initial actor representation mismatch")
+        policy.load_state_dict(payload["policy"])
     optimizer = torch.optim.Adam(policy.parameters(), lr=3e-4)
     # Equal total sampling mass for braking, neutral/partial, and full acceleration.
     targets = actions.numpy()[train_indices, 0]
@@ -242,6 +257,10 @@ def fit(
                 "training_seeds": sorted(set(row_seeds[~validation].tolist())),
                 "epochs": epochs,
                 "seed": seed,
+                "initial_actor": None if initial_actor is None else str(initial_actor),
+                "initial_actor_sha256": None
+                if initial_actor is None
+                else hashlib.sha256(initial_actor.read_bytes()).hexdigest(),
                 "hidden_size": hidden_size,
                 "observation_dim": OBSERVATION_DIM,
                 "feature_version": FEATURE_VERSION,

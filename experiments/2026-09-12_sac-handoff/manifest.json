@@ -1,0 +1,28 @@
+{
+  "phase": "imitation complete; SAC initialization, before critic warmup",
+  "actor_source": "experiments/2026-09-08_imitation-v2/seed-1/actor.pt",
+  "actor_sha256": "a1a0ec6c00b827f26ab26912c3ef4421621be4ee2c0d236a9b504ae52b68aae3",
+  "numpy_source": "experiments/2026-09-08_imitation-v2/seed-1/policy.npz",
+  "numpy_sha256": "d73047e19c5c0b85cf385af6f55c365accd8266a7041c3a69f787a3b8e741af7",
+  "feature_version": 1,
+  "observation_dim": 336,
+  "hidden_size": 128,
+  "log_std": -4.6,
+  "initial_alpha": 0.01,
+  "gamma": 0.997,
+  "actor_lr": 3e-05,
+  "critic_lr": 0.0003,
+  "initialization_seed": 0,
+  "maximum_mean_difference": 2.384185791015625e-07,
+  "critics_trained": false,
+  "replay_seeded": false,
+  "actor_updates": 0,
+  "action_contract": "Critic actions are policy requests before release_brake; history uses applied commands.",
+  "demonstration_contract": "Dataset actions are expert LABELS. In corrective data these differ from actions executed by the simulator. Use JSONL applied_action for transitions, not labels paired with next states.",
+  "next_training_requirements": [
+    "Build replay using valid within-episode transitions and real terminal handling",
+    "Warm critics with the actor frozen before enabling small actor updates",
+    "Retain expert labels for a decaying imitation loss",
+    "Evaluate and checkpoint against this frozen baseline"
+  ]
+}

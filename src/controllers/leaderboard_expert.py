@@ -46,6 +46,18 @@ class Controller:
         self._previous_throttle = command.throttle
         return command
 
+    def advise(self, sensors: RobotSensors, previous_applied: RobotCommand) -> RobotCommand:
+        """Label a learner state using its actual previous action.
+
+        Call exactly once per tick on a fresh teacher for each episode. Recovery
+        is a timed intention: it advances with observed ticks even when the
+        learner declines a suggested action; contact never extends the timer.
+        This avoids treating unexecuted steering/braking advice as car history.
+        """
+        self._previous_steer = previous_applied.steer
+        self._previous_throttle = previous_applied.throttle
+        return self(sensors)
+
     def _race_command(self, sensors: RobotSensors) -> RobotCommand:
         walls = sensors.wall_lidar
         front_wall_m = _finite_distance(walls.front_m)

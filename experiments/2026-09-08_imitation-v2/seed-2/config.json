@@ -1,0 +1,60 @@
+{
+  "dataset": "/Users/lucygood/formula110/artifacts/imitation-v2-data/dataset.npz",
+  "dataset_sha256": "e57ed26c790ebcb72bb5fe2a110391f2d27f14819d85b80a008011fb7229311e",
+  "validation_seeds": [
+    101,
+    102,
+    103,
+    104
+  ],
+  "training_seeds": [
+    0,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25
+  ],
+  "epochs": 80,
+  "seed": 2,
+  "hidden_size": 128,
+  "observation_dim": 336,
+  "feature_version": 1,
+  "best_validation_weighted_mse": 0.04791867733001709,
+  "train_samples": 158551,
+  "validation_samples": 21608,
+  "throttle_group_counts": [
+    30351,
+    51820,
+    76380
+  ],
+  "selection": "minimum validation throttle MSE + 4 * steer MSE",
+  "fit_seconds": 42.74311091704294,
+  "provenance": {
+    "git_commit": "80332b312d42967f6087bb92cf86f9f46acffa93",
+    "numpy_version": "2.4.6",
+    "torch_version": "2.13.0",
+    "source_sha256": {
+      "src/controllers/leaderboard_expert.py": "77193bc233db9271d08540cda8b8ad2bdaa26a812d68448ea76c74638ab1d530",
+      "src/controllers/clone_features.py": "3b4b3261345383168326777ec66e94fd52b3e5af305383d294eecde79b652eef",
+      "src/controllers/imitation.py": "bf7389c74fab60ffb0917e087579ad02cab14c06fcc11bf9c5c5d8dff79efb24",
+      "src/training/imitation.py": "22b0a0e9ea66fa217a4ee34bea942c0c878b900930abd5d8cfb92d4803b7ff65",
+      "src/training/sac.py": "509b7a8d393f82234b988e5acf73098dcdaeab056b42ef0abae4a1e3f80686ed",
+      "uv.lock": "f97e1489a754932099093163475811a6ba35e68b9c5da875c478a803bbfd592c"
+    }
+  },
+  "batch_size": 512,
+  "learning_rate": 0.0003,
+  "steering_loss_weight": 4.0
+}

@@ -23,6 +23,7 @@ def main() -> None:
     training.add_argument("--epochs", type=int, default=80)
     training.add_argument("--seed", type=int, default=0)
     training.add_argument("--hidden-size", type=int, default=128)
+    training.add_argument("--initial-actor", type=Path)
     evaluation = commands.add_parser("evaluate")
     evaluation.add_argument("--model", type=Path, required=True)
     evaluation.add_argument("--output", type=Path, required=True)
@@ -32,7 +33,15 @@ def main() -> None:
     if args.command == "collect":
         collect(args.output, args.seeds, args.seconds)
     elif args.command == "fit":
-        fit(args.dataset, args.output, args.validation_seeds, args.epochs, args.seed, args.hidden_size)
+        fit(
+            args.dataset,
+            args.output,
+            args.validation_seeds,
+            args.epochs,
+            args.seed,
+            args.hidden_size,
+            args.initial_actor,
+        )
     else:
         evaluate(args.model, args.output, args.seeds, args.seconds)
 

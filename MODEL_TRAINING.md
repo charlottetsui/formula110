@@ -9,15 +9,23 @@ the combined work from September 8, 2026 onward.
 
 ## Current status
 
-**We have a small, runnable imitation model that matches the expert's distance
-in the first local trials. It still needs broader reliability testing before
-SAC fine-tuning or a leaderboard submission.**
+**Updated September 12, 2026: the selected second-round imitation actor is ready
+as a baseline for controlled SAC initialization/critic warmup.** It has passed
+layout-disjoint driving tests and a low-noise SAC inference check. Severe
+disturbance recovery remains weak; this is not race-day reliability certification.
+See [Second round and SAC handoff](#second-round-and-sac-handoff--completed-2026-09-12)
+for the current artifacts and next-stage contract. The original SAC training
+script still uses the old 17-input interface and must not be pointed at this
+336-input checkpoint without adapting its training loop.
 
 - Controller: [`controllers.imitation`](src/controllers/imitation.py).
 - Frozen artifact: [`imitation_policy.npz`](src/controllers/imitation_policy.npz),
-  223,316 bytes (about 218 KiB).
+  223,960 bytes (about 219 KiB), selected second-round seed 1.
 - Training/evaluation CLI: [`scripts/train_imitation.py`](scripts/train_imitation.py).
 - Evidence: [`experiments/2026-09-08_imitation-v1`](experiments/2026-09-08_imitation-v1).
+- Current evidence: [`imitation-v2`](experiments/2026-09-08_imitation-v2),
+  [rejected recovery pass](experiments/2026-09-12_imitation-recovery), and
+  [prepared SAC initialization](experiments/2026-09-12_sac-handoff).
 - No expert controller runs inside the deployed model. Only the learned network,
   sensor history, and exact brake-release wrapper select its commands.
 
@@ -116,7 +124,7 @@ unit tests or achieving low action error does not establish driving quality.
 
 ### 4. Export a reviewed candidate
 
-The first candidate has already been copied to
+The selected second-round candidate has already been copied to
 `src/controllers/imitation_policy.npz`. To install a subsequent evaluated model:
 
 ```bash
@@ -238,7 +246,7 @@ teacher hash, losses, seed split, settings and model artifacts are retained.
 `source_manifest.json` explicitly identifies its hashes as a post-run snapshot;
 it must not be interpreted as the exact training-start source state.
 
-## Next milestones
+## Historical next milestones after the first experiment
 
 1. Diagnose the two contact/damage cases with watched races; collect useful
    corrections with teacher state aligned to the actions actually applied.
@@ -260,3 +268,194 @@ Append new experiment entries here with the question, exact commands/settings,
 evidence directory, observed results, failed attempts and next decision. Keep
 large raw datasets outside the controller package and never replace the current
 candidate solely because training loss or reward improved.
+
+## Second round and SAC handoff — completed 2026-09-12
+
+### What the resumed audit found
+
+The interrupted session had finished collecting 180,159 samples and training
+three independent initializations (seeds 0, 1 and 2, 80 epochs each). It also
+completed validation, held-out layout tests and stress tests. It had not updated
+this guide, installed the selected artifact, or packaged/verified the SAC
+initialization. The original directory name `2026-09-08_imitation-v2` is retained
+so existing evidence paths remain valid; the audit and completion occurred on
+September 12.
+
+Training now covers 17 layouts: the default, anisotropically stretched/mirrored
+versions, and procedurally generated radial circuits with varying radii, lobes,
+curvature and direction. Four entire layouts (101–104) were reserved for
+validation and six (201–206) for testing. Samples and spawn seeds are stored in
+`collection.json`, so geometry can be reproduced independently of the generator.
+The public headless runner gained an optional `track_samples` argument; the
+same geometry drives collisions, sensors, spawning and race progress. Controllers
+still receive only public sensors, never the layout or official progress.
+
+These are synthetic training families, **not the unknown race-day generator**.
+Track width, physics and sensor settings remain those of this simulator. This
+does not cover every hairpin, width, obstacle placement or future sensor contract.
+The generated centerlines were checked for crossings; that check is not a
+guarantee of adequate wall clearance everywhere.
+
+### Corrective imitation and model selection
+
+Collection combines expert driving with contiguous learner-driven blocks and
+12-tick steering/braking perturbations every 500 ticks. The teacher's `advise`
+method uses the actual previous command, not suggestions the learner ignored.
+Its recovery timer advances once per observed tick as a timed intention. Labels
+and executed actions are stored separately. Layout group IDs occupy the legacy
+dataset `episode_seeds` field; validation splits are therefore by layout.
+
+All three initializations passed driving validation without damage. Seed 1 was
+selected on validation before inspecting final test results. The selection gate
+required no eliminations, at least 90% of teacher distance on every validation
+layout, and at most 25% damage. Qualified candidates were ranked by mean distance
+ratio minus half their mean maximum damage. This is a project selection rule,
+not an externally established safety threshold.
+
+The selected model had no damage, wall contact or eliminations in the 12 races
+on layouts 201–206. The other initializations failed some harder cases: seed 0
+became stuck and seed 2 suffered an elimination. Thus this checkpoint is useful,
+but training-run reliability is not established merely because validation passed.
+
+The stress suite uses two slower expert opponents, 60-second races, and both
+ordinary and forcibly disturbed driving. Seed 1 survived all ordinary traffic
+tests. Under repeated disturbances it suffered two eliminations on the default
+track; the expert suffered one. Radial/stretch disturbance cases also caused
+damage. These failures were retained rather than hidden by average distance.
+
+On resumption, Codex collected **46,949 additional corrective samples** using
+seed 1 in slower, denser traffic, including more default-track starts. Merging
+them with the initial data preserved whole episode/layout groups. A warm-started
+60-epoch imitation pass (seed 3) still matched ordinary validation distance but
+increased total disturbed-test eliminations from two to four. **That pass was
+rejected**; its evidence is in `2026-09-12_imitation-recovery`. No deployment
+decision was based on its training loss alone.
+
+After retaining the original seed-1 selection, a fresh six-layout test suite
+(301–306, absent from collection and model selection) was run:
+
+| Layout | Expert distance | Selected clone distance |
+| --- | ---: | ---: |
+| 301 | 3,805.50 m | 4,023.90 m |
+| 302 | 3,027.03 m | 3,059.64 m |
+| 303 | 3,673.35 m | 3,644.72 m |
+| 304 | 2,735.73 m | 2,766.82 m |
+| 305 | 3,783.95 m | 3,803.26 m |
+| 306 | 2,907.53 m | 2,872.45 m |
+
+Distances sum two 60-second challenger races against an expert opponent.
+Both expert and selected clone had zero damage, wall contact and eliminations
+on this suite. The full evidence is `2026-09-12_sac-handoff/final_test.json`.
+
+### Artifacts ready for the SAC stage
+
+- Deployed NumPy baseline: `src/controllers/imitation_policy.npz`.
+- Selected BC actor: `experiments/2026-09-08_imitation-v2/seed-1/actor.pt`.
+- Prepared SAC weights: `experiments/2026-09-12_sac-handoff/initial_sac.pt`.
+- Architecture/configuration: the adjacent `manifest.json`.
+- Loader and compatible inference adapter: `training.imitation_handoff`.
+
+The preparation replaces the untrained BC variance head with constant log
+standard deviation **−4.6** (about 0.010 before tanh), initializes entropy
+temperature to 0.01, sets gamma to 0.997 and actor learning rate to 0.00003,
+and preserves the learned mean network. Critics are fresh and **untrained**.
+No actor or critic optimization, replay seeding, or RL fine-tuning occurred in
+this handoff. `load_prepared` restores configuration as well as weights.
+
+```python
+from pathlib import Path
+from training.imitation_handoff import HandoffController, load_prepared
+
+agent = load_prepared(Path("experiments/2026-09-12_sac-handoff"))
+controller = HandoffController(agent, deterministic=True)
+```
+
+The NumPy model and initialized SAC mean differed by at most 2.84e-7 on recorded
+observations. Deterministic and low-noise stochastic SAC inference were checked
+on default seeds 110 and 42 and radial layout 101, two 30-second races each.
+All 12 challenger races finished without damage or eliminations; policy weights
+were unchanged. See `exploration_check.json`. This supports conservative initial
+data collection, not arbitrary increases in entropy or unconstrained actor updates.
+
+### Contract for beginning SAC work
+
+The imitation model is ready; the next stage is **implementing the compatible
+replay/critic-warmup loop**, not rerunning the old `scripts/train_sac.py`.
+
+1. Use the same 336-input history, per-car resets, and exact brake-release wrapper.
+   Keep the selected clone frozen as the regression baseline.
+2. Collect transitions with the cloned actor before enabling actor updates.
+   Train critics first. Distinguish true termination from time limits; the old
+   `damage >= 0.9` shortcut is not reliable terminal handling.
+3. Define critic action semantics consistently. The prepared adapter treats a
+   policy output as a **request before the wrapper**, while history uses the
+   **applied command**. For recorded demonstrations an applied command can be
+   used as the request only when reapplying the wrapper reproduces it; otherwise
+   exclude that transition or retain its original request explicitly.
+4. **Do not seed replay using corrective expert labels paired with observed
+   next states.** Labels often differ from executed controls. The JSONL stores
+   `applied_action` and `expert_action` separately; the NPZ `actions` array is
+   intended for supervised imitation losses. Preserve episode boundaries and
+   exclude transitions whose next sensor/terminal outcome is unavailable.
+5. Retain an imitation loss during early actor updates, audit reward behavior,
+   and compare saved policies on distance, damage and recovery. Continue layout
+   variation during SAC. Severe recovery remains a training objective.
+
+### Reproduction commands
+
+Use new output names; commands refuse to overwrite existing evidence.
+
+```bash
+# Initial layout-diverse data, using the preserved first clone
+uv run python -m training.imitation_round2 collect \
+  --output artifacts/NEW_LAYOUT_DATA \
+  --learner experiments/2026-09-08_imitation-v1/policy.npz
+
+# Repeat separately with --seed 0, 1 and 2
+uv run python scripts/train_imitation.py fit \
+  --dataset artifacts/NEW_LAYOUT_DATA/dataset.npz \
+  --output experiments/NEW_RUN --validation-seeds 101 102 103 104 \
+  --epochs 80 --seed 1
+
+uv run python -m training.imitation_round2 evaluate \
+  --models experiments/NEW_RUN/policy.npz --split validation \
+  --output experiments/NEW_VALIDATION.json
+
+uv run python -m training.imitation_round2 stress \
+  --model experiments/NEW_RUN/policy.npz --output experiments/NEW_STRESS.json
+
+# Package a reviewed actor for the SAC initialization phase
+uv run python -m training.imitation_handoff \
+  --actor experiments/NEW_RUN/actor.pt --numpy-policy experiments/NEW_RUN/policy.npz \
+  --output experiments/NEW_HANDOFF --log-std -4.6
+
+uv run python scripts/check_sac_handoff.py \
+  --directory experiments/NEW_HANDOFF --output experiments/NEW_EXPLORATION.json \
+  --dataset artifacts/NEW_LAYOUT_DATA/dataset.npz
+```
+
+Corrective continuation is supported by `imitation_round2 collect --recovery-only`,
+`imitation_round2 merge --datasets ... --output ...`, and
+`train_imitation.py fit --initial-actor ...`. The rejected run's config and dataset
+source manifest record its exact inputs. Raw gzip/NPZ datasets remain in ignored
+`artifacts/`; copy those separately when transferring training to another machine.
+
+### Completion checks and contributions
+
+Lucy requested the interrupted work be audited and completed. Codex reviewed all
+saved training/evaluation evidence, implemented and evaluated the additional
+corrective pass, rejected its regressions, prepared the configuration-aware SAC
+loader, verified exploration and numerical parity, and installed/exported the
+selected second-round NumPy artifact. No commits or leaderboard submissions
+were made.
+
+All **163 tests pass**, Pyright passes with the project interpreter, changed
+Python files pass Ruff, and `git diff --check` passes. New tests cover layout
+separation, geometry integration, applied-action-aware advice, episode-safe data
+merging, validation-only selection and the prepared SAC load/save round trip.
+The local export was checked to contain exactly the installed model's bytes.
+
+The installed model also passed the local autograder subprocess solo runner:
+670.983 m on seed 110 and 681.653 m on seed 2026 in 30 seconds, with no damage
+or wall contact (`2026-09-12_sac-handoff/solo_results.json`). These are local
+CPU/subprocess checks, not Linux isolation or race-day leaderboard certification.
