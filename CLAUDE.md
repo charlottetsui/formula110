@@ -1,9 +1,11 @@
 # CLAUDE.md — SAC track (Formula 110, COMP 590H)
 
 This file governs work on the **SAC exploration/refinement track** of this
-project. It does not cover the second (PPO) approach — that is a separate,
-independently developed track and is out of scope here. Do not add
-partner/PPO-coordination content to any file this document points at.
+project. It does not cover the second (imitation-learning) approach — a
+rule-based geometry expert plus behavior cloning on its trajectories,
+developed independently by the partner on `lucy-il` — that is a separate
+track and is out of scope here. Do not add partner/imitation-learning
+coordination content to any file this document points at.
 
 Read this file, then `docs/rl_design.md` and the most recent entries in
 `docs/lab_notebook.md`, at the start of every session before writing code
@@ -175,8 +177,10 @@ uv run python scripts/export_student_controllers.py --all-controllers && printf 
 
 - This track's docs (`docs/rl_design.md`, `docs/lab_notebook.md`) describe
   Charlotte's own SAC implementation and experiments only. Do not add
-  sections managing or documenting the partner's PPO work, shared-infra
-  write-ups, or "sync with teammate" steps.
+  sections managing or documenting the partner's imitation-learning work
+  (geometry expert, behavior cloning, `MODEL_TRAINING.md`,
+  `GEOMETRY_EXPERT.md`), shared-infra write-ups, or "sync with teammate"
+  steps.
 - The two-approach comparison the course requires is satisfied at the team
   level via a joint write-up outside this track — not by duplicating both
   approaches here.

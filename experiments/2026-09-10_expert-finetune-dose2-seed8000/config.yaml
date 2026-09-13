@@ -1,0 +1,23 @@
+races: 2
+round_seconds: 120.0
+copies_per_side: 1
+opponent: expert
+seed: 8000
+buffer_capacity: 800000
+warmup_steps: 0
+update_every_n_steps: 4
+batch_size: 256
+n_step: 3
+hidden_size: 128
+trajectory_bonus: False
+resume_from: experiments/2026-09-08_seed8000-resumed-short/checkpoints/policy_final.pt
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+experiment_dir: experiments/2026-09-10_expert-finetune-dose2-seed8000
+git_commit: d81ed898972f198de324b89f3785c3cf9ade285d
+training_seconds: 10.03
+transitions_collected: 10210
+gradient_updates: 2489
+observation_dim: 24
+action_dim: 2

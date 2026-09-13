@@ -1,0 +1,2682 @@
+[
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "crash_fast",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 110,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3737.3491403318267
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1859.237840646298,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1859.237840646298
+          ],
+          "raw_distances_m": [
+            1859.237840646298
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.11666666666667247
+          ],
+          "car_contact_seconds": [
+            2.6999999999998607
+          ],
+          "damages": [
+            0.050642781642857654
+          ],
+          "max_speeds_mps": [
+            37.81274159749349
+          ],
+          "best_lap_times_seconds": [
+            11.866666666666836
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            4.333333333333323
+          ],
+          "off_track_seconds": [
+            0.7500000000000007
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1859.237840646298,
+            "team_sum_distance_m": 1859.237840646298,
+            "team_sum_raw_distance_m": 1859.237840646298,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.866666666666836,
+            "max_speed_mps": 37.81274159749349,
+            "average_damage": 0.050642781642857654,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.11666666666667247,
+            "total_car_contact_seconds": 2.6999999999998607,
+            "total_low_progress_seconds": 4.333333333333323,
+            "total_off_track_seconds": 0.7500000000000007,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            58.10660143120974
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            3.8833333333332742
+          ],
+          "car_contact_seconds": [
+            2.6999999999998607
+          ],
+          "damages": [
+            0.43755817324857393
+          ],
+          "max_speeds_mps": [
+            18.76969231499566
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            111.98333333332826
+          ],
+          "off_track_seconds": [
+            5.966666666666651
+          ],
+          "marshal_counts": [
+            54
+          ],
+          "marshal_penalties_m": [
+            270.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 58.10660143120974,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 18.76969231499566,
+            "average_damage": 0.43755817324857393,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 3.8833333333332742,
+            "total_car_contact_seconds": 2.6999999999998607,
+            "total_low_progress_seconds": 111.98333333332826,
+            "total_off_track_seconds": 5.966666666666651,
+            "total_marshal_count": 54,
+            "total_marshal_penalty_m": 270.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1878.1112996855284,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1878.1112996855284
+          ],
+          "raw_distances_m": [
+            1878.1112996855284
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.4999999999999858
+          ],
+          "car_contact_seconds": [
+            0.4499999999999833
+          ],
+          "damages": [
+            0.05534245072892819
+          ],
+          "max_speeds_mps": [
+            37.78703477647569
+          ],
+          "best_lap_times_seconds": [
+            11.866666666666836
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.5166666666666626
+          ],
+          "off_track_seconds": [
+            2.5999999999999956
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1878.1112996855284,
+            "team_sum_distance_m": 1878.1112996855284,
+            "team_sum_raw_distance_m": 1878.1112996855284,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.866666666666836,
+            "max_speed_mps": 37.78703477647569,
+            "average_damage": 0.05534245072892819,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.4999999999999858,
+            "total_car_contact_seconds": 0.4499999999999833,
+            "total_low_progress_seconds": 2.5166666666666626,
+            "total_off_track_seconds": 2.5999999999999956,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            62.82883521758084
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            5.1333333333330735
+          ],
+          "car_contact_seconds": [
+            0.4499999999999833
+          ],
+          "damages": [
+            0.28154831432999267
+          ],
+          "max_speeds_mps": [
+            17.313556671142578
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            102.44999999999547
+          ],
+          "off_track_seconds": [
+            6.766666666666648
+          ],
+          "marshal_counts": [
+            50
+          ],
+          "marshal_penalties_m": [
+            250.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 62.82883521758084,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 17.313556671142578,
+            "average_damage": 0.28154831432999267,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 5.1333333333330735,
+            "total_car_contact_seconds": 0.4499999999999833,
+            "total_low_progress_seconds": 102.44999999999547,
+            "total_off_track_seconds": 6.766666666666648,
+            "total_marshal_count": 50,
+            "total_marshal_penalty_m": 250.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 110,
+    "baseline": "crash_fast"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "crash_fast",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 42,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3863.8704600213214
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1837.317241173896,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1837.317241173896
+          ],
+          "raw_distances_m": [
+            1837.317241173896
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.816246880425346
+          ],
+          "best_lap_times_seconds": [
+            11.433333333333481
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.483333333333333
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1837.317241173896,
+            "team_sum_distance_m": 1837.317241173896,
+            "team_sum_raw_distance_m": 1837.317241173896,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.433333333333481,
+            "max_speed_mps": 37.816246880425346,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 1.483333333333333,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            2.7496939196680614e-06
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            0.3026348683569166
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            120.01666666666114
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            59
+          ],
+          "marshal_penalties_m": [
+            295.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 2.7496939196680614e-06,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 0.3026348683569166,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 120.01666666666114,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 59,
+            "total_marshal_penalty_m": 295.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 2026.5532188474256,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            2026.5532188474256
+          ],
+          "raw_distances_m": [
+            2026.5532188474256
+          ],
+          "lap_counts": [
+            11
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.837672763400604
+          ],
+          "best_lap_times_seconds": [
+            11.90000000000017
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.2500000000000004
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 2026.5532188474256,
+            "team_sum_distance_m": 2026.5532188474256,
+            "team_sum_raw_distance_m": 2026.5532188474256,
+            "total_lap_count": 11,
+            "best_lap_time_seconds": 11.90000000000017,
+            "max_speed_mps": 37.837672763400604,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 1.2500000000000004,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            1.7332237064238143e-05
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            0.3021596206559075
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            120.01666666666114
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            59
+          ],
+          "marshal_penalties_m": [
+            295.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 1.7332237064238143e-05,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 0.3021596206559075,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 120.01666666666114,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 59,
+            "total_marshal_penalty_m": 295.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 42,
+    "baseline": "crash_fast"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "crash_fast",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 7,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3793.100863621199
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1750.0114858642658,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1750.0114858642658
+          ],
+          "raw_distances_m": [
+            1750.0114858642658
+          ],
+          "lap_counts": [
+            9
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.47563256157769
+          ],
+          "best_lap_times_seconds": [
+            13.000000000000226
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.5833333333333326
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1750.0114858642658,
+            "team_sum_distance_m": 1750.0114858642658,
+            "team_sum_raw_distance_m": 1750.0114858642658,
+            "total_lap_count": 9,
+            "best_lap_time_seconds": 13.000000000000226,
+            "max_speed_mps": 37.47563256157769,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 1.5833333333333326,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            1.9880231150182226e-07
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            0.3009699781735738
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            120.01666666666114
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            59
+          ],
+          "marshal_penalties_m": [
+            295.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 1.9880231150182226e-07,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 0.3009699781735738,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 120.01666666666114,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 59,
+            "total_marshal_penalty_m": 295.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 2043.0893777569331,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            2043.0893777569331
+          ],
+          "raw_distances_m": [
+            2043.0893777569331
+          ],
+          "lap_counts": [
+            11
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.85897572835287
+          ],
+          "best_lap_times_seconds": [
+            11.466666666666816
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.0500000000000012
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 2043.0893777569331,
+            "team_sum_distance_m": 2043.0893777569331,
+            "team_sum_raw_distance_m": 2043.0893777569331,
+            "total_lap_count": 11,
+            "best_lap_time_seconds": 11.466666666666816,
+            "max_speed_mps": 37.85897572835287,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 1.0500000000000012,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            2.6626317279010436e-05
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            0.3011831310060289
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            120.01666666666114
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            59
+          ],
+          "marshal_penalties_m": [
+            295.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 2.6626317279010436e-05,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 0.3011831310060289,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 120.01666666666114,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 59,
+            "total_marshal_penalty_m": 295.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 7,
+    "baseline": "crash_fast"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "crash_fast",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 2024,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 4015.596629401999
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 2022.347664591481,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            2022.347664591481
+          ],
+          "raw_distances_m": [
+            2022.347664591481
+          ],
+          "lap_counts": [
+            11
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.83407423231337
+          ],
+          "best_lap_times_seconds": [
+            11.883333333333503
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.4333333333333331
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 2022.347664591481,
+            "team_sum_distance_m": 2022.347664591481,
+            "team_sum_raw_distance_m": 2022.347664591481,
+            "total_lap_count": 11,
+            "best_lap_time_seconds": 11.883333333333503,
+            "max_speed_mps": 37.83407423231337,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 1.4333333333333331,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            3.78716787565736e-05
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.0
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            0.3016396363576253
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            120.01666666666114
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            59
+          ],
+          "marshal_penalties_m": [
+            295.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 3.78716787565736e-05,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 0.3016396363576253,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.0,
+            "total_low_progress_seconds": 120.01666666666114,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 59,
+            "total_marshal_penalty_m": 295.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1993.2489648105181,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1993.2489648105181
+          ],
+          "raw_distances_m": [
+            1993.2489648105181
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.033333333333333215
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.841712103949654
+          ],
+          "best_lap_times_seconds": [
+            12.466666666666866
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.4166666666666665
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1993.2489648105181,
+            "team_sum_distance_m": 1993.2489648105181,
+            "team_sum_raw_distance_m": 1993.2489648105181,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 12.466666666666866,
+            "max_speed_mps": 37.841712103949654,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.033333333333333215,
+            "total_low_progress_seconds": 1.4166666666666665,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            15.413528051238046
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            0.7000000000000348
+          ],
+          "car_contact_seconds": [
+            0.033333333333333215
+          ],
+          "damages": [
+            0.2595893432154807
+          ],
+          "max_speeds_mps": [
+            19.65521070692274
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            118.74999999999454
+          ],
+          "off_track_seconds": [
+            1.100000000000001
+          ],
+          "marshal_counts": [
+            58
+          ],
+          "marshal_penalties_m": [
+            290.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 15.413528051238046,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 19.65521070692274,
+            "average_damage": 0.2595893432154807,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.7000000000000348,
+            "total_car_contact_seconds": 0.033333333333333215,
+            "total_low_progress_seconds": 118.74999999999454,
+            "total_off_track_seconds": 1.100000000000001,
+            "total_marshal_count": 58,
+            "total_marshal_penalty_m": 290.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 2024,
+    "baseline": "crash_fast"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "crash_fast",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 8675309,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3903.075644291859
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1980.312394016265,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1980.312394016265
+          ],
+          "raw_distances_m": [
+            1980.312394016265
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.4999999999999769
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.84447987874349
+          ],
+          "best_lap_times_seconds": [
+            13.03333333333356
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.0499999999999976
+          ],
+          "off_track_seconds": [
+            0.31666666666666665
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1980.312394016265,
+            "team_sum_distance_m": 1980.312394016265,
+            "team_sum_raw_distance_m": 1980.312394016265,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 13.03333333333356,
+            "max_speed_mps": 37.84447987874349,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.4999999999999769,
+            "total_low_progress_seconds": 2.0499999999999976,
+            "total_off_track_seconds": 0.31666666666666665,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            16.128129939654087
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            2.0666666666666327
+          ],
+          "car_contact_seconds": [
+            0.4999999999999769
+          ],
+          "damages": [
+            0.1409493432969544
+          ],
+          "max_speeds_mps": [
+            12.07479159037272
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            117.98333333332792
+          ],
+          "off_track_seconds": [
+            3.21666666666666
+          ],
+          "marshal_counts": [
+            58
+          ],
+          "marshal_penalties_m": [
+            290.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 16.128129939654087,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 12.07479159037272,
+            "average_damage": 0.1409493432969544,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 2.0666666666666327,
+            "total_car_contact_seconds": 0.4999999999999769,
+            "total_low_progress_seconds": 117.98333333332792,
+            "total_off_track_seconds": 3.21666666666666,
+            "total_marshal_count": 58,
+            "total_marshal_penalty_m": 290.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1922.763250275594,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1922.763250275594
+          ],
+          "raw_distances_m": [
+            1922.763250275594
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.06666666666666998
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.841504414876304
+          ],
+          "best_lap_times_seconds": [
+            11.566666666666821
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.4666666666666663
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1922.763250275594,
+            "team_sum_distance_m": 1922.763250275594,
+            "team_sum_raw_distance_m": 1922.763250275594,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.566666666666821,
+            "max_speed_mps": 37.841504414876304,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.06666666666666998,
+            "total_low_progress_seconds": 1.4666666666666663,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            0.0
+          ],
+          "raw_distances_m": [
+            8.598345322890495
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            1.516666666666742
+          ],
+          "car_contact_seconds": [
+            0.06666666666666998
+          ],
+          "damages": [
+            0.002280985658376684
+          ],
+          "max_speeds_mps": [
+            4.590116606818305
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            117.44999999999462
+          ],
+          "off_track_seconds": [
+            1.5999999999999992
+          ],
+          "marshal_counts": [
+            58
+          ],
+          "marshal_penalties_m": [
+            290.0
+          ],
+          "summary": {
+            "best_distance_m": 0.0,
+            "team_sum_distance_m": 0.0,
+            "team_sum_raw_distance_m": 8.598345322890495,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 4.590116606818305,
+            "average_damage": 0.002280985658376684,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 1.516666666666742,
+            "total_car_contact_seconds": 0.06666666666666998,
+            "total_low_progress_seconds": 117.44999999999462,
+            "total_off_track_seconds": 1.5999999999999992,
+            "total_marshal_count": 58,
+            "total_marshal_penalty_m": 290.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 8675309,
+    "baseline": "crash_fast"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "default_student_controller",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 110,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3017.6944701248003
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1509.4969307518315,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1873.6493703909673
+          ],
+          "raw_distances_m": [
+            1873.6493703909673
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.21666666666665435
+          ],
+          "car_contact_seconds": [
+            0.3666666666666547
+          ],
+          "damages": [
+            0.16518944939599256
+          ],
+          "max_speeds_mps": [
+            37.832442389594185
+          ],
+          "best_lap_times_seconds": [
+            11.850000000000168
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.1333333333333306
+          ],
+          "off_track_seconds": [
+            0.5166666666666666
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1873.6493703909673,
+            "team_sum_distance_m": 1873.6493703909673,
+            "team_sum_raw_distance_m": 1873.6493703909673,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.850000000000168,
+            "max_speed_mps": 37.832442389594185,
+            "average_damage": 0.16518944939599256,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.21666666666665435,
+            "total_car_contact_seconds": 0.3666666666666547,
+            "total_low_progress_seconds": 2.1333333333333306,
+            "total_off_track_seconds": 0.5166666666666666,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            364.1524396391358
+          ],
+          "raw_distances_m": [
+            364.1524396391358
+          ],
+          "lap_counts": [
+            1
+          ],
+          "wall_contact_seconds": [
+            0.11666666666666003
+          ],
+          "car_contact_seconds": [
+            0.3666666666666547
+          ],
+          "damages": [
+            0.04001941450164462
+          ],
+          "max_speeds_mps": [
+            24.920120239257812
+          ],
+          "best_lap_times_seconds": [
+            66.6499999999975
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.9333333333333313
+          ],
+          "off_track_seconds": [
+            0.7500000000000007
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 364.1524396391358,
+            "team_sum_distance_m": 364.1524396391358,
+            "team_sum_raw_distance_m": 364.1524396391358,
+            "total_lap_count": 1,
+            "best_lap_time_seconds": 66.6499999999975,
+            "max_speed_mps": 24.920120239257812,
+            "average_damage": 0.04001941450164462,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.11666666666666003,
+            "total_car_contact_seconds": 0.3666666666666547,
+            "total_low_progress_seconds": 1.9333333333333313,
+            "total_off_track_seconds": 0.7500000000000007,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1508.1975393729685,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1847.7884633305368
+          ],
+          "raw_distances_m": [
+            1847.7884633305368
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.2833333333333172
+          ],
+          "car_contact_seconds": [
+            0.8333333333332966
+          ],
+          "damages": [
+            0.09569796114346639
+          ],
+          "max_speeds_mps": [
+            37.82956017388238
+          ],
+          "best_lap_times_seconds": [
+            11.866666666666836
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.633333333333329
+          ],
+          "off_track_seconds": [
+            1.4666666666666663
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1847.7884633305368,
+            "team_sum_distance_m": 1847.7884633305368,
+            "team_sum_raw_distance_m": 1847.7884633305368,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.866666666666836,
+            "max_speed_mps": 37.82956017388238,
+            "average_damage": 0.09569796114346639,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.2833333333333172,
+            "total_car_contact_seconds": 0.8333333333332966,
+            "total_low_progress_seconds": 2.633333333333329,
+            "total_off_track_seconds": 1.4666666666666663,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            339.5909239575682
+          ],
+          "raw_distances_m": [
+            349.5909239575682
+          ],
+          "lap_counts": [
+            1
+          ],
+          "wall_contact_seconds": [
+            2.9333333333331737
+          ],
+          "car_contact_seconds": [
+            0.8333333333332966
+          ],
+          "damages": [
+            0.0030320195137911988
+          ],
+          "max_speeds_mps": [
+            23.747825622558594
+          ],
+          "best_lap_times_seconds": [
+            68.33333333333074
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            6.016666666666651
+          ],
+          "off_track_seconds": [
+            4.716666666666655
+          ],
+          "marshal_counts": [
+            2
+          ],
+          "marshal_penalties_m": [
+            10.0
+          ],
+          "summary": {
+            "best_distance_m": 339.5909239575682,
+            "team_sum_distance_m": 339.5909239575682,
+            "team_sum_raw_distance_m": 349.5909239575682,
+            "total_lap_count": 1,
+            "best_lap_time_seconds": 68.33333333333074,
+            "max_speed_mps": 23.747825622558594,
+            "average_damage": 0.0030320195137911988,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 2.9333333333331737,
+            "total_car_contact_seconds": 0.8333333333332966,
+            "total_low_progress_seconds": 6.016666666666651,
+            "total_off_track_seconds": 4.716666666666655,
+            "total_marshal_count": 2,
+            "total_marshal_penalty_m": 10.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 110,
+    "baseline": "default_student_controller"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "default_student_controller",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 42,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3280.663116084983
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1830.9924539884187,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1971.8583634207425
+          ],
+          "raw_distances_m": [
+            1971.8583634207425
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.29999999999999183
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.83089955647787
+          ],
+          "best_lap_times_seconds": [
+            11.400000000000146
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.5833333333333326
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1971.8583634207425,
+            "team_sum_distance_m": 1971.8583634207425,
+            "team_sum_raw_distance_m": 1971.8583634207425,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.400000000000146,
+            "max_speed_mps": 37.83089955647787,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.29999999999999183,
+            "total_low_progress_seconds": 1.5833333333333326,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            140.8659094323238
+          ],
+          "raw_distances_m": [
+            150.8659094323238
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            3.1166666666665233
+          ],
+          "car_contact_seconds": [
+            0.29999999999999183
+          ],
+          "damages": [
+            0.7061005024907078
+          ],
+          "max_speeds_mps": [
+            25.81075668334961
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            43.34999999999882
+          ],
+          "off_track_seconds": [
+            14.56666666666697
+          ],
+          "marshal_counts": [
+            2
+          ],
+          "marshal_penalties_m": [
+            10.0
+          ],
+          "summary": {
+            "best_distance_m": 140.8659094323238,
+            "team_sum_distance_m": 140.8659094323238,
+            "team_sum_raw_distance_m": 150.8659094323238,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 25.81075668334961,
+            "average_damage": 0.7061005024907078,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 3.1166666666665233,
+            "total_car_contact_seconds": 0.29999999999999183,
+            "total_low_progress_seconds": 43.34999999999882,
+            "total_off_track_seconds": 14.56666666666697,
+            "total_marshal_count": 2,
+            "total_marshal_penalty_m": 10.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1449.6706620965645,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1840.4673339037256
+          ],
+          "raw_distances_m": [
+            1845.4673339037256
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            2.0666666666665545
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.83165825737847
+          ],
+          "best_lap_times_seconds": [
+            11.866666666666836
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            3.483333333333326
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            1
+          ],
+          "marshal_penalties_m": [
+            5.0
+          ],
+          "summary": {
+            "best_distance_m": 1840.4673339037256,
+            "team_sum_distance_m": 1840.4673339037256,
+            "team_sum_raw_distance_m": 1845.4673339037256,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.866666666666836,
+            "max_speed_mps": 37.83165825737847,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 2.0666666666665545,
+            "total_low_progress_seconds": 3.483333333333326,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 1,
+            "total_marshal_penalty_m": 5.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            390.7966718071611
+          ],
+          "raw_distances_m": [
+            400.7966718071611
+          ],
+          "lap_counts": [
+            2
+          ],
+          "wall_contact_seconds": [
+            3.033333333333161
+          ],
+          "car_contact_seconds": [
+            2.0666666666665545
+          ],
+          "damages": [
+            0.01012543043131494
+          ],
+          "max_speeds_mps": [
+            25.48856523301866
+          ],
+          "best_lap_times_seconds": [
+            46.216666666665326
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            3.9333333333333242
+          ],
+          "off_track_seconds": [
+            3.3333333333333264
+          ],
+          "marshal_counts": [
+            2
+          ],
+          "marshal_penalties_m": [
+            10.0
+          ],
+          "summary": {
+            "best_distance_m": 390.7966718071611,
+            "team_sum_distance_m": 390.7966718071611,
+            "team_sum_raw_distance_m": 400.7966718071611,
+            "total_lap_count": 2,
+            "best_lap_time_seconds": 46.216666666665326,
+            "max_speed_mps": 25.48856523301866,
+            "average_damage": 0.01012543043131494,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 3.033333333333161,
+            "total_car_contact_seconds": 2.0666666666665545,
+            "total_low_progress_seconds": 3.9333333333333242,
+            "total_off_track_seconds": 3.3333333333333264,
+            "total_marshal_count": 2,
+            "total_marshal_penalty_m": 10.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 42,
+    "baseline": "default_student_controller"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "default_student_controller",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 7,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 2771.6263580496548
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1501.4941180002702,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1845.1259335792904
+          ],
+          "raw_distances_m": [
+            1845.1259335792904
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.14999999999999147
+          ],
+          "car_contact_seconds": [
+            0.533333333333303
+          ],
+          "damages": [
+            0.0016070381948536856
+          ],
+          "max_speeds_mps": [
+            37.83709208170573
+          ],
+          "best_lap_times_seconds": [
+            11.950000000000173
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.199999999999997
+          ],
+          "off_track_seconds": [
+            0.6000000000000002
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1845.1259335792904,
+            "team_sum_distance_m": 1845.1259335792904,
+            "team_sum_raw_distance_m": 1845.1259335792904,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.950000000000173,
+            "max_speed_mps": 37.83709208170573,
+            "average_damage": 0.0016070381948536856,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.14999999999999147,
+            "total_car_contact_seconds": 0.533333333333303,
+            "total_low_progress_seconds": 2.199999999999997,
+            "total_off_track_seconds": 0.6000000000000002,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            343.6318155790201
+          ],
+          "raw_distances_m": [
+            353.6318155790201
+          ],
+          "lap_counts": [
+            1
+          ],
+          "wall_contact_seconds": [
+            3.383333333333141
+          ],
+          "car_contact_seconds": [
+            0.5499999999999687
+          ],
+          "damages": [
+            0.06846555543605522
+          ],
+          "max_speeds_mps": [
+            26.52896457248264
+          ],
+          "best_lap_times_seconds": [
+            65.93333333333088
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            4.2833333333333234
+          ],
+          "off_track_seconds": [
+            6.383333333333316
+          ],
+          "marshal_counts": [
+            2
+          ],
+          "marshal_penalties_m": [
+            10.0
+          ],
+          "summary": {
+            "best_distance_m": 343.6318155790201,
+            "team_sum_distance_m": 343.6318155790201,
+            "team_sum_raw_distance_m": 353.6318155790201,
+            "total_lap_count": 1,
+            "best_lap_time_seconds": 65.93333333333088,
+            "max_speed_mps": 26.52896457248264,
+            "average_damage": 0.06846555543605522,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 3.383333333333141,
+            "total_car_contact_seconds": 0.5499999999999687,
+            "total_low_progress_seconds": 4.2833333333333234,
+            "total_off_track_seconds": 6.383333333333316,
+            "total_marshal_count": 2,
+            "total_marshal_penalty_m": 10.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1270.1322400493846,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1729.7442917264543
+          ],
+          "raw_distances_m": [
+            1729.7442917264543
+          ],
+          "lap_counts": [
+            9
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            5.2166666666664305
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.850964864095054
+          ],
+          "best_lap_times_seconds": [
+            11.466666666666816
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            6.683333333333315
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1729.7442917264543,
+            "team_sum_distance_m": 1729.7442917264543,
+            "team_sum_raw_distance_m": 1729.7442917264543,
+            "total_lap_count": 9,
+            "best_lap_time_seconds": 11.466666666666816,
+            "max_speed_mps": 37.850964864095054,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 5.2166666666664305,
+            "total_low_progress_seconds": 6.683333333333315,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            459.61205167706964
+          ],
+          "raw_distances_m": [
+            459.61205167706964
+          ],
+          "lap_counts": [
+            2
+          ],
+          "wall_contact_seconds": [
+            0.1833333333333229
+          ],
+          "car_contact_seconds": [
+            5.2166666666664305
+          ],
+          "damages": [
+            0.031047159898738817
+          ],
+          "max_speeds_mps": [
+            15.374042722913954
+          ],
+          "best_lap_times_seconds": [
+            42.11666666666556
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            5.499999999999986
+          ],
+          "off_track_seconds": [
+            0.18333333333333332
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 459.61205167706964,
+            "team_sum_distance_m": 459.61205167706964,
+            "team_sum_raw_distance_m": 459.61205167706964,
+            "total_lap_count": 2,
+            "best_lap_time_seconds": 42.11666666666556,
+            "max_speed_mps": 15.374042722913954,
+            "average_damage": 0.031047159898738817,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.1833333333333229,
+            "total_car_contact_seconds": 5.2166666666664305,
+            "total_low_progress_seconds": 5.499999999999986,
+            "total_off_track_seconds": 0.18333333333333332,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 7,
+    "baseline": "default_student_controller"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "default_student_controller",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 2024,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 2802.994170088453
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1521.0044626750548,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1926.064059880202
+          ],
+          "raw_distances_m": [
+            1926.064059880202
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.1833333333333229
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            37.846014234754776
+          ],
+          "best_lap_times_seconds": [
+            11.883333333333503
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.6833333333333322
+          ],
+          "off_track_seconds": [
+            0.0
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1926.064059880202,
+            "team_sum_distance_m": 1926.064059880202,
+            "team_sum_raw_distance_m": 1926.064059880202,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.883333333333503,
+            "max_speed_mps": 37.846014234754776,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.1833333333333229,
+            "total_low_progress_seconds": 1.6833333333333322,
+            "total_off_track_seconds": 0.0,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            405.0595972051471
+          ],
+          "raw_distances_m": [
+            410.0595972051471
+          ],
+          "lap_counts": [
+            2
+          ],
+          "wall_contact_seconds": [
+            1.5166666666665805
+          ],
+          "car_contact_seconds": [
+            0.1833333333333229
+          ],
+          "damages": [
+            0.18471108663861477
+          ],
+          "max_speeds_mps": [
+            24.487968020968967
+          ],
+          "best_lap_times_seconds": [
+            45.049999999998725
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            1.733333333333332
+          ],
+          "off_track_seconds": [
+            3.2499999999999933
+          ],
+          "marshal_counts": [
+            1
+          ],
+          "marshal_penalties_m": [
+            5.0
+          ],
+          "summary": {
+            "best_distance_m": 405.0595972051471,
+            "team_sum_distance_m": 405.0595972051471,
+            "team_sum_raw_distance_m": 410.0595972051471,
+            "total_lap_count": 2,
+            "best_lap_time_seconds": 45.049999999998725,
+            "max_speed_mps": 24.487968020968967,
+            "average_damage": 0.18471108663861477,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 1.5166666666665805,
+            "total_car_contact_seconds": 0.1833333333333229,
+            "total_low_progress_seconds": 1.733333333333332,
+            "total_off_track_seconds": 3.2499999999999933,
+            "total_marshal_count": 1,
+            "total_marshal_penalty_m": 5.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1281.9897074133983,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1754.5120041516736
+          ],
+          "raw_distances_m": [
+            1754.5120041516736
+          ],
+          "lap_counts": [
+            9
+          ],
+          "wall_contact_seconds": [
+            0.5333333333333172
+          ],
+          "car_contact_seconds": [
+            0.8333333333332895
+          ],
+          "damages": [
+            0.1114317994882942
+          ],
+          "max_speeds_mps": [
+            37.70748562282986
+          ],
+          "best_lap_times_seconds": [
+            11.683333333333493
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            3.2333333333333267
+          ],
+          "off_track_seconds": [
+            0.966666666666668
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1754.5120041516736,
+            "team_sum_distance_m": 1754.5120041516736,
+            "team_sum_raw_distance_m": 1754.5120041516736,
+            "total_lap_count": 9,
+            "best_lap_time_seconds": 11.683333333333493,
+            "max_speed_mps": 37.70748562282986,
+            "average_damage": 0.1114317994882942,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.5333333333333172,
+            "total_car_contact_seconds": 0.8333333333332895,
+            "total_low_progress_seconds": 3.2333333333333267,
+            "total_off_track_seconds": 0.966666666666668,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            472.5222967382754
+          ],
+          "raw_distances_m": [
+            472.5222967382754
+          ],
+          "lap_counts": [
+            2
+          ],
+          "wall_contact_seconds": [
+            0.0
+          ],
+          "car_contact_seconds": [
+            0.8333333333332895
+          ],
+          "damages": [
+            0.0
+          ],
+          "max_speeds_mps": [
+            28.651097615559895
+          ],
+          "best_lap_times_seconds": [
+            46.6666666666653
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            0.850000000000001
+          ],
+          "off_track_seconds": [
+            0.3
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 472.5222967382754,
+            "team_sum_distance_m": 472.5222967382754,
+            "team_sum_raw_distance_m": 472.5222967382754,
+            "total_lap_count": 2,
+            "best_lap_time_seconds": 46.6666666666653,
+            "max_speed_mps": 28.651097615559895,
+            "average_damage": 0.0,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0,
+            "total_car_contact_seconds": 0.8333333333332895,
+            "total_low_progress_seconds": 0.850000000000001,
+            "total_off_track_seconds": 0.3,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 2024,
+    "baseline": "default_student_controller"
+  },
+  {
+    "schema_version": 1,
+    "challenger_name": "sac-trained",
+    "incumbent_name": "default_student_controller",
+    "round_seconds": 120.0,
+    "fixed_delta_seconds": 0.016666666666666666,
+    "random_seed": 8675309,
+    "rules": {
+      "scoring": "team-sum",
+      "win_margin_m": 1.0,
+      "marshal_enabled": true,
+      "marshal_stuck_seconds": 1.5,
+      "marshal_penalty_m": 5.0,
+      "marshal_cooldown_seconds": 2.0
+    },
+    "summary": {
+      "winner": "challenger",
+      "race_count": 2,
+      "challenger_wins": 2,
+      "incumbent_wins": 0,
+      "ties": 0,
+      "aggregate_margin_m": 3125.515486776834
+    },
+    "races": [
+      {
+        "race_index": 1,
+        "winner": "challenger",
+        "margin_m": 1622.7301161784706,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1720.5217422645208
+          ],
+          "raw_distances_m": [
+            1720.5217422645208
+          ],
+          "lap_counts": [
+            9
+          ],
+          "wall_contact_seconds": [
+            2.2166666666665407
+          ],
+          "car_contact_seconds": [
+            1.2499999999999325
+          ],
+          "damages": [
+            0.24582578467449015
+          ],
+          "max_speeds_mps": [
+            37.8510496351454
+          ],
+          "best_lap_times_seconds": [
+            11.666666666666826
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            5.866666666666651
+          ],
+          "off_track_seconds": [
+            3.6999999999999917
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1720.5217422645208,
+            "team_sum_distance_m": 1720.5217422645208,
+            "team_sum_raw_distance_m": 1720.5217422645208,
+            "total_lap_count": 9,
+            "best_lap_time_seconds": 11.666666666666826,
+            "max_speed_mps": 37.8510496351454,
+            "average_damage": 0.24582578467449015,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 2.2166666666665407,
+            "total_car_contact_seconds": 1.2499999999999325,
+            "total_low_progress_seconds": 5.866666666666651,
+            "total_off_track_seconds": 3.6999999999999917,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            97.7916260860502
+          ],
+          "raw_distances_m": [
+            107.7916260860502
+          ],
+          "lap_counts": [
+            0
+          ],
+          "wall_contact_seconds": [
+            2.149999999999878
+          ],
+          "car_contact_seconds": [
+            1.2499999999999325
+          ],
+          "damages": [
+            0.2927316060261249
+          ],
+          "max_speeds_mps": [
+            16.818162070380318
+          ],
+          "best_lap_times_seconds": [
+            null
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            49.93333333333178
+          ],
+          "off_track_seconds": [
+            9.016666666666694
+          ],
+          "marshal_counts": [
+            2
+          ],
+          "marshal_penalties_m": [
+            10.0
+          ],
+          "summary": {
+            "best_distance_m": 97.7916260860502,
+            "team_sum_distance_m": 97.7916260860502,
+            "team_sum_raw_distance_m": 107.7916260860502,
+            "total_lap_count": 0,
+            "best_lap_time_seconds": null,
+            "max_speed_mps": 16.818162070380318,
+            "average_damage": 0.2927316060261249,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 2.149999999999878,
+            "total_car_contact_seconds": 1.2499999999999325,
+            "total_low_progress_seconds": 49.93333333333178,
+            "total_off_track_seconds": 9.016666666666694,
+            "total_marshal_count": 2,
+            "total_marshal_penalty_m": 10.0
+          }
+        }
+      },
+      {
+        "race_index": 2,
+        "winner": "challenger",
+        "margin_m": 1502.7853705983634,
+        "scoring": "team-sum",
+        "challenger": {
+          "distances_m": [
+            1860.772860633661
+          ],
+          "raw_distances_m": [
+            1860.772860633661
+          ],
+          "lap_counts": [
+            10
+          ],
+          "wall_contact_seconds": [
+            0.3333333333333144
+          ],
+          "car_contact_seconds": [
+            0.31666666666665044
+          ],
+          "damages": [
+            0.2837171461846325
+          ],
+          "max_speeds_mps": [
+            37.83545176188151
+          ],
+          "best_lap_times_seconds": [
+            11.416666666666814
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            2.1499999999999972
+          ],
+          "off_track_seconds": [
+            1.566666666666666
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 1860.772860633661,
+            "team_sum_distance_m": 1860.772860633661,
+            "team_sum_raw_distance_m": 1860.772860633661,
+            "total_lap_count": 10,
+            "best_lap_time_seconds": 11.416666666666814,
+            "max_speed_mps": 37.83545176188151,
+            "average_damage": 0.2837171461846325,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.3333333333333144,
+            "total_car_contact_seconds": 0.31666666666665044,
+            "total_low_progress_seconds": 2.1499999999999972,
+            "total_off_track_seconds": 1.566666666666666,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        },
+        "incumbent": {
+          "distances_m": [
+            357.98749003529736
+          ],
+          "raw_distances_m": [
+            357.98749003529736
+          ],
+          "lap_counts": [
+            1
+          ],
+          "wall_contact_seconds": [
+            0.0833333333333286
+          ],
+          "car_contact_seconds": [
+            0.31666666666665044
+          ],
+          "damages": [
+            0.10583533384936487
+          ],
+          "max_speeds_mps": [
+            24.91252687242296
+          ],
+          "best_lap_times_seconds": [
+            63.86666666666432
+          ],
+          "penalized_distances_m": [
+            0.0
+          ],
+          "low_progress_seconds": [
+            9.016666666666694
+          ],
+          "off_track_seconds": [
+            0.4833333333333333
+          ],
+          "marshal_counts": [
+            0
+          ],
+          "marshal_penalties_m": [
+            0.0
+          ],
+          "summary": {
+            "best_distance_m": 357.98749003529736,
+            "team_sum_distance_m": 357.98749003529736,
+            "team_sum_raw_distance_m": 357.98749003529736,
+            "total_lap_count": 1,
+            "best_lap_time_seconds": 63.86666666666432,
+            "max_speed_mps": 24.91252687242296,
+            "average_damage": 0.10583533384936487,
+            "elimination_count": 0,
+            "total_wall_contact_seconds": 0.0833333333333286,
+            "total_car_contact_seconds": 0.31666666666665044,
+            "total_low_progress_seconds": 9.016666666666694,
+            "total_off_track_seconds": 0.4833333333333333,
+            "total_marshal_count": 0,
+            "total_marshal_penalty_m": 0.0
+          }
+        }
+      }
+    ],
+    "eval_seed": 8675309,
+    "baseline": "default_student_controller"
+  }
+]

@@ -3,9 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from racing.student.api import CameraSensors, ContactSensors, OdometrySensors, RobotSensors
-from training.controller import TrainableController, TrainingState
-from training.observation import OBSERVATION_DIM
+from controllers import leaderboard_expert
+from racing.student.api import CameraSensors, ContactSensors, OdometrySensors, RobotCommand, RobotSensors
+from training.controller import RESIDUAL_ACTION_SCALE, TrainableController, TrainingState
+from training.observation import OBSERVATION_DIM, encode_observation
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
 from training.trajectory import BestTrajectoryTracker
@@ -220,6 +221,108 @@ def test_n_step_flushes_every_partial_window_immediately_on_termination() -> Non
     assert len(state.buffer) == 2
     transitions = state.buffer.sample(2, rng=np.random.default_rng(0))
     assert (transitions.dones == 1.0).all()
+
+
+def test_expert_match_flag_runs_without_error_and_pushes_normally() -> None:
+    state = _training_state()
+    controller = TrainableController(state=state, training=True, expert_match=True)
+
+    for tick in range(5):
+        command = controller(_sensors(tick=tick))
+        assert -1.0 <= command.throttle <= 1.0
+        assert -1.0 <= command.steer <= 1.0
+
+    assert len(state.buffer) == 4  # one push per tick after the first, same as expert_match=False
+
+
+def test_copy_for_car_propagates_the_expert_match_flag_without_error() -> None:
+    state = _training_state()
+    original = TrainableController(state=state, training=True, expert_match=True)
+    original(_sensors(tick=0))
+
+    copy = original.copy_for_car()
+    for tick in range(3):
+        command = copy(_sensors(tick=tick))
+        assert -1.0 <= command.throttle <= 1.0
+        assert -1.0 <= command.steer <= 1.0
+
+
+def test_expert_match_and_residual_base_are_mutually_exclusive() -> None:
+    state = _training_state()
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        TrainableController(state=state, training=True, expert_match=True, residual_base=True)
+
+
+def test_residual_base_blends_the_expert_command_with_a_scaled_policy_correction() -> None:
+    state = _training_state()
+    controller = TrainableController(state=state, training=False, deterministic=True, residual_base=True)
+    sensors = _sensors(tick=5)
+
+    command = controller(sensors)
+
+    raw_action = state.agent.act(encode_observation(sensors), deterministic=True)
+    expert_command = leaderboard_expert.create_controller()(sensors)  # a fresh instance sees the same first tick
+    expected_throttle = max(-1.0, min(1.0, expert_command.throttle + RESIDUAL_ACTION_SCALE * float(raw_action[0])))
+    expected_steer = max(-1.0, min(1.0, expert_command.steer + RESIDUAL_ACTION_SCALE * float(raw_action[1])))
+    assert command.throttle == pytest.approx(expected_throttle)
+    assert command.steer == pytest.approx(expected_steer)
+
+
+def test_residual_scale_controls_how_much_the_correction_can_shift_the_command() -> None:
+    state = _training_state()
+    sensors = _sensors(tick=5)
+    small_scale = TrainableController(
+        state=state, training=False, deterministic=True, residual_base=True, residual_scale=0.1
+    )(sensors)
+    large_scale = TrainableController(
+        state=state, training=False, deterministic=True, residual_base=True, residual_scale=0.6
+    )(sensors)
+
+    expert_command = leaderboard_expert.create_controller()(sensors)
+
+    def deviation(command: RobotCommand) -> float:
+        return abs(command.throttle - expert_command.throttle) + abs(command.steer - expert_command.steer)
+
+    assert deviation(large_scale) > deviation(small_scale)
+
+
+def test_residual_base_passes_through_the_expert_unmodified_during_recovery() -> None:
+    state = _training_state()
+    controller = TrainableController(state=state, training=False, deterministic=True, residual_base=True)
+    stuck = RobotSensors(contact=ContactSensors(wall=0.1), odometry=OdometrySensors(speed_mps=0.0))
+
+    command = controller(stuck)
+
+    # leaderboard_expert.Controller's recovery command is always exactly (-1.0, +-0.9);
+    # a blended command could only coincidentally land there, not reliably every time.
+    assert command.throttle == -1.0
+    assert abs(command.steer) == 0.9
+
+
+def test_residual_base_pushes_the_raw_policy_action_not_the_blended_command() -> None:
+    state = _training_state(warmup_steps=0)
+    controller = TrainableController(state=state, training=True, deterministic=True, residual_base=True)
+    first_sensors = _sensors(tick=0)
+    controller(first_sensors)
+    controller(_sensors(tick=1))
+
+    pushed_action = state.buffer.sample(1, rng=np.random.default_rng(0)).actions[0]
+    expected_raw_action = state.agent.act(encode_observation(first_sensors), deterministic=True)
+
+    assert pushed_action == pytest.approx(expected_raw_action)
+
+
+def test_copy_for_car_propagates_residual_base_without_error() -> None:
+    state = _training_state()
+    original = TrainableController(state=state, training=True, residual_base=True)
+    original(_sensors(tick=0))
+
+    copy = original.copy_for_car()
+    for tick in range(3):
+        command = copy(_sensors(tick=tick))
+        assert -1.0 <= command.throttle <= 1.0
+        assert -1.0 <= command.steer <= 1.0
 
 
 def test_warmup_actions_are_random_until_buffer_reaches_warmup_steps() -> None:

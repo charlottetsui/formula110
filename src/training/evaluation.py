@@ -23,7 +23,7 @@ import numpy as np
 from controllers.crash_fast import control as crash_fast_control
 from racing.race.head_to_head import HeadToHeadResult, HeadToHeadRole, run_headless_head_to_head
 from racing.student.api import RobotController, default_student_controller
-from training.controller import TrainableController, TrainingState
+from training.controller import RESIDUAL_ACTION_SCALE, TrainableController, TrainingState
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
@@ -49,6 +49,8 @@ def evaluate_against_baselines(
     eval_round_seconds: float,
     baselines: dict[str, RobotController] | None = None,
     deterministic: bool = True,
+    residual_base: bool = False,
+    residual_scale: float = RESIDUAL_ACTION_SCALE,
 ) -> list[dict[str, object]]:
     """Run the frozen policy in `agent` against every baseline, across every seed.
 
@@ -59,6 +61,12 @@ def evaluate_against_baselines(
     or updating weights -- used to check whether dangerous deterministic
     behavior is an eval-time artifact rather than what the policy actually
     learned.
+
+    Pass ``residual_base=True`` if `agent` was trained with
+    `TrainableController`'s ``residual_base`` mode -- its output is a
+    correction on top of `controllers.leaderboard_expert`, not an absolute
+    command, and evaluating it without this flag would silently treat that
+    correction as the whole action.
     """
     resolved_baselines = BASELINE_CONTROLLERS if baselines is None else baselines
     # `rng` is only consulted by the stochastic (deterministic=False) path here
@@ -72,7 +80,13 @@ def evaluate_against_baselines(
     records: list[dict[str, object]] = []
     for baseline_name, baseline_controller in resolved_baselines.items():
         for seed in eval_seeds:
-            trained_controller = TrainableController(state=eval_state, training=False, deterministic=deterministic)
+            trained_controller = TrainableController(
+                state=eval_state,
+                training=False,
+                deterministic=deterministic,
+                residual_base=residual_base,
+                residual_scale=residual_scale,
+            )
             result = run_headless_head_to_head(
                 challenger_controller=trained_controller,
                 incumbent_controller=baseline_controller,

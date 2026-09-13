@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from racing.student.api import CameraCompetitorReading, LidarSensors, RobotSensors
+from racing.student.api import CameraCompetitorReading, CameraSensors, LidarSensors, RobotSensors
 
 WEIGHT_PROGRESS = 1.0
 # Raised 0.05 -> 0.3 (2026-09-01, single-variable experiment) after the
@@ -41,7 +41,35 @@ WEIGHT_PROGRESS = 1.0
 # See docs/lab_notebook.md's 2026-09-03 entry and
 # experiments/2026-09-03_center-offset-half-seed110/notes.md.
 WEIGHT_CENTER_OFFSET = 0.3
+
+# Added 2026-09-12 as a residual-mode-specific attempt at closing the pace gap to
+# controllers.leaderboard_expert's raw speed, after the residual-scale sweep, the
+# network-initialization seed sweep, and a flat progress-weight reweight all failed
+# cleanly (see docs/rl_design.md section 6, causal test 37 and its follow-ups) --
+# each treated speed as a single global dial. This instead targets cornering
+# technique specifically: WEIGHT_CENTER_OFFSET today penalizes drifting off the
+# centerline identically everywhere on the track, but leaderboard_expert.py itself
+# explicitly does the opposite -- it computes how sharp the upcoming bend is (its own
+# `bend_score`, from lookahead offsets) and only backs off for real corners, using the
+# full track width on straights. The learned correction has never been given that
+# distinction; every prior attempt to loosen this penalty *uniformly* (2026-09-03,
+# WEIGHT_CENTER_OFFSET halved) was a clean regression, but that changed the penalty
+# everywhere, including corners, which is exactly where it's load-bearing. This scales
+# the penalty by curvature instead: full strength approaching a real bend, reduced (not
+# zero) on straights. `curvature_aware_center_offset=False` (the default) leaves
+# existing behavior identical -- this is a training.controller.TrainableController /
+# scripts/train_sac.py opt-in flag, not a change to the constant itself.
+CENTER_OFFSET_CURVATURE_REFERENCE_M = 3.0
+MIN_CENTER_OFFSET_SCALE = 0.3
+
 WEIGHT_CONTACT = 0.2
+# Held at 5.0 since this reward's inception (2026-08-31) -- never itself the variable in any
+# prior causal test. Added an opt-in `damage_weight` override to `step_reward` (2026-09-12) as
+# a residual-mode-specific "accept more risk on purpose" lever, alongside
+# `wall_proximity_speed_scale_mps` below: the base action already comes from a competent (if
+# reckless) expert in that mode, so a lower damage cost may let the learned correction chase
+# more of the expert's own speed instead of being dominated by caution tuned for a from-scratch
+# policy with no such floor. Plain self-play is unaffected unless passed explicitly.
 WEIGHT_DAMAGE = 5.0
 WEIGHT_REVERSE = 0.1
 # Added 2026-09-01 after a repeated-seed check on the scaled-training-budget
@@ -222,6 +250,17 @@ WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
 # re-run with genuine network-initialization diversity before drawing a
 # firm conclusion about `WALL_PROXIMITY_SPEED_SCALE_MPS` specifically. See
 # docs/lab_notebook.md's 2026-09-08 entry.
+#
+# Added an opt-in `wall_proximity_speed_scale_mps` override to `step_reward` (2026-09-12) as a
+# residual-mode-specific pace lever, after four other levers (residual scale in both directions,
+# a 5-seed sweep, a flat progress-weight reweight, curvature-aware center-offset) all failed to
+# close the pace gap to controllers.leaderboard_expert's raw speed -- see docs/rl_design.md
+# section 6, causal test 37 and its follow-ups. This constant is the closest thing left to a
+# "speed ceiling" since `MAX_REWARDED_SPEED_MPS` was removed structurally (2026-09-02, above):
+# raising it makes the wall-proximity penalty grow more slowly with speed, i.e. tolerates more
+# speed before pricing it as risky. Untested at any value in residual mode specifically (the one
+# prior test of this constant, 10.0 -> 15.0 on 2026-09-08, was on plain self-play and confounded
+# by the shared-seed bug described above). Plain self-play is unaffected unless passed explicitly.
 WALL_PROXIMITY_SPEED_SCALE_MPS = 10.0
 
 # Added 2026-09-07 as the proposed complement to adding `sensors.lidar` to
@@ -281,6 +320,27 @@ WALL_PROXIMITY_SPEED_SCALE_MPS = 10.0
 WEIGHT_ROBOT_PROXIMITY = 0.0
 ROBOT_WARNING_DISTANCE_M = 8.0
 ROBOT_WARNING_ANGLE_DEGREES = 45.0
+
+# Added 2026-09-10 as a new combined-approach direction with the separate
+# imitation-learning track (`controllers.leaderboard_expert`, a hand-written
+# rule-based controller developed independently on `lucy-il`): reward the
+# policy for choosing an action close to what that expert would have chosen,
+# but *only* in situations already judged hazardous by the wall/robot
+# proximity checks above -- ordinary cornering/racing behavior is left
+# untouched. Distinct from every other training-time combination attempted
+# on this track (docs/rl_design.md section 6, causal test 35 and its
+# follow-up): those changed self-play's *opponent* to the expert itself and
+# caused severe, fast training collapse at every dose and resume strategy
+# tried, because a fixed, unfamiliar, already-competent opponent shifts the
+# entire training distribution the policy learns from. This mechanism
+# changes nothing about self-play or its opponent -- the expert is consulted
+# only as a labeling function for what a known-competent driver would do at
+# the exact tick the policy's own action is being scored, so it cannot
+# destabilize training the same way. Weight chosen to be comparable in scale
+# to WEIGHT_WALL_PROXIMITY's typical single-hazard contribution (~0.3-1.0)
+# without dominating WEIGHT_PROGRESS -- not yet tuned by a dedicated
+# experiment.
+WEIGHT_EXPERT_MATCH = 0.5
 
 # Tried 2026-09-02 after three attempts to raise speed via
 # MAX_REWARDED_SPEED_MPS (10.0 -> 12.0, -> 20.0) all failed to beat the
@@ -342,8 +402,48 @@ YAW_RATE_REVERSAL_THRESHOLD_DEGREES_PER_S = 5.0
 NEAR_ELIMINATION_DAMAGE = 0.9
 
 
-def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
-    """Return the proxy reward for the transition from `previous` to `current`."""
+def step_reward(
+    previous: RobotSensors,
+    current: RobotSensors,
+    *,
+    previous_action: tuple[float, float] | None = None,
+    expert_action: tuple[float, float] | None = None,
+    progress_weight: float = WEIGHT_PROGRESS,
+    curvature_aware_center_offset: bool = False,
+    wall_proximity_speed_scale_mps: float = WALL_PROXIMITY_SPEED_SCALE_MPS,
+    damage_weight: float = WEIGHT_DAMAGE,
+) -> float:
+    """Return the proxy reward for the transition from `previous` to `current`.
+
+    `previous_action` (the actual `(throttle, steer)` chosen at `previous`) and
+    `expert_action` (what `controllers.leaderboard_expert.Controller` would
+    have chosen there) are both optional and default to `None`, in which case
+    the expert-match term below contributes nothing -- callers that don't run
+    a shadow expert controller (e.g. every test in this file, and
+    `TrainableController` with `expert_match=False`) are unaffected.
+
+    `progress_weight` overrides `WEIGHT_PROGRESS` for this call and defaults to
+    it, so every existing caller is unaffected. Added 2026-09-12 to test
+    whether residual-mode training (`TrainableController`'s `residual_base`)
+    -- where the *base* action already comes from a competent, if reckless,
+    expert -- benefits from weighting speed more heavily relative to the
+    caution terms below, which were tuned entirely in the context of a
+    from-scratch policy that has to supply 100% of its own collision
+    avoidance. Plain self-play is unaffected unless this is passed explicitly.
+
+    `curvature_aware_center_offset` (default `False`, so existing behavior is
+    unchanged) scales the `WEIGHT_CENTER_OFFSET` penalty by how sharp the
+    upcoming bend is instead of applying it uniformly -- see
+    `CENTER_OFFSET_CURVATURE_REFERENCE_M`'s docstring above for the rationale.
+
+    `wall_proximity_speed_scale_mps` and `damage_weight` override
+    `WALL_PROXIMITY_SPEED_SCALE_MPS`/`WEIGHT_DAMAGE` respectively and both default
+    to the module constants, so every existing caller is unaffected. Added
+    2026-09-12, alongside `progress_weight`, as further residual-mode-specific
+    "accept more risk on purpose" levers for closing the pace gap to
+    `controllers.leaderboard_expert`'s raw speed -- see those constants'
+    docstrings above for the rationale.
+    """
     forward_progress_m = current.odometry.speed_mps * math.cos(math.radians(current.camera.heading_error_degrees))
     forward_progress_m *= current.dt_s
     damage_delta = max(0.0, current.contact.damage - previous.contact.damage)
@@ -355,22 +455,25 @@ def step_reward(previous: RobotSensors, current: RobotSensors) -> float:
     is_steering_reversal = _is_steering_reversal(
         previous.imu.yaw_rate_degrees_per_s, current.imu.yaw_rate_degrees_per_s
     )
-    speed_risk_multiplier = 1.0 + abs(current.odometry.speed_mps) / WALL_PROXIMITY_SPEED_SCALE_MPS
+    speed_risk_multiplier = 1.0 + abs(current.odometry.speed_mps) / wall_proximity_speed_scale_mps
     wall_proximity_penalty = _wall_proximity_penalty(current.wall_lidar) * speed_risk_multiplier
     robot_proximity_penalty = _robot_proximity_penalty(current.camera.competitors) * speed_risk_multiplier
+    expert_match_cost = _expert_match_penalty(previous, previous_action, expert_action)
+    center_offset_scale = _center_offset_curvature_scale(current.camera) if curvature_aware_center_offset else 1.0
 
     return (
-        WEIGHT_PROGRESS * forward_progress_m
-        - WEIGHT_CENTER_OFFSET * abs(current.camera.center_offset_m)
+        progress_weight * forward_progress_m
+        - WEIGHT_CENTER_OFFSET * center_offset_scale * abs(current.camera.center_offset_m)
         - WEIGHT_WALL_PROXIMITY * wall_proximity_penalty
         - WEIGHT_ROBOT_PROXIMITY * robot_proximity_penalty
         - WEIGHT_CONTACT * (1.0 if in_contact else 0.0)
-        - WEIGHT_DAMAGE * damage_delta
+        - damage_weight * damage_delta
         - WEIGHT_REVERSE * reverse_penalty
         - WEIGHT_IDLE * (1.0 if is_idle else 0.0)
         - WEIGHT_TERMINAL_PENALTY * (1.0 if is_terminal(current) else 0.0)
         - WEIGHT_STEERING_SMOOTHNESS * steering_smoothness_penalty
         - WEIGHT_STEERING_REVERSAL * (1.0 if is_steering_reversal else 0.0)
+        - WEIGHT_EXPERT_MATCH * expert_match_cost
     )
 
 
@@ -400,6 +503,33 @@ def _is_steering_reversal(previous_yaw_rate_degrees_per_s: float, current_yaw_ra
     return math.copysign(1.0, previous_yaw_rate_degrees_per_s) != math.copysign(1.0, current_yaw_rate_degrees_per_s)
 
 
+def _bend_score(camera: CameraSensors) -> float:
+    """Return how sharply the track ahead curves, from lookahead offsets.
+
+    Mirrors `controllers.leaderboard_expert`'s own `bend_score` exactly (near/
+    middle/far lookahead offsets, same weighting) so "curvy" means the same
+    thing here as it does to the expert whose command this is meant to
+    complement, not a new, uncalibrated notion of curvature.
+    """
+    offsets = camera.lookahead_offsets_m
+    near = offsets[0] if offsets else camera.center_offset_m
+    middle = offsets[len(offsets) // 2] if offsets else near
+    far = offsets[-1] if offsets else middle
+    return abs(far - near) + 0.45 * abs(middle - near)
+
+
+def _center_offset_curvature_scale(camera: CameraSensors) -> float:
+    """Return a `[MIN_CENTER_OFFSET_SCALE, 1.0]` multiplier for the center-offset penalty.
+
+    Full strength (`1.0`) at or above `CENTER_OFFSET_CURVATURE_REFERENCE_M` of
+    bend (a real corner); ramps down to `MIN_CENTER_OFFSET_SCALE` (never all
+    the way to zero -- some centering signal stays even on a straight) as the
+    track ahead flattens out.
+    """
+    ratio = min(1.0, _bend_score(camera) / CENTER_OFFSET_CURVATURE_REFERENCE_M)
+    return MIN_CENTER_OFFSET_SCALE + (1.0 - MIN_CENTER_OFFSET_SCALE) * ratio
+
+
 def _wall_proximity_penalty(wall_lidar: LidarSensors) -> float:
     warnings = tuple(
         _proximity_ratio(
@@ -423,3 +553,34 @@ def _proximity_ratio(distance_m: float, *, warning_distance_m: float) -> float:
     if not math.isfinite(distance_m) or distance_m >= warning_distance_m:
         return 0.0
     return (warning_distance_m - max(0.0, distance_m)) / warning_distance_m
+
+
+def _in_hazard(sensors: RobotSensors) -> bool:
+    """Return whether `sensors` describes a wall- or competitor-proximity hazard.
+
+    Reuses the exact proximity checks `_wall_proximity_penalty`/
+    `_robot_proximity_penalty` are built from (regardless of whether those
+    mechanisms' own weights are currently enabled), so "hazard" here means
+    precisely the situations this file already has a notion of being risky.
+    """
+    wall_hazard = _wall_proximity_penalty(sensors.wall_lidar) > 0.0
+    robot_hazard = _robot_proximity_penalty(sensors.camera.competitors) > 0.0
+    return wall_hazard or robot_hazard
+
+
+def _expert_match_penalty(
+    previous: RobotSensors,
+    previous_action: tuple[float, float] | None,
+    expert_action: tuple[float, float] | None,
+) -> float:
+    """Return how far `previous_action` was from `expert_action`, but only in a hazard state.
+
+    Zero whenever either action is unavailable (the mechanism is disabled, or
+    this is the controller's first tick, before any action has been taken) or
+    `previous` wasn't judged hazardous -- ordinary racing behavior is never
+    nudged toward the expert's, only behavior at the exact moments already
+    flagged as risky by this file's own proximity checks.
+    """
+    if previous_action is None or expert_action is None or not _in_hazard(previous):
+        return 0.0
+    return (abs(previous_action[0] - expert_action[0]) + abs(previous_action[1] - expert_action[1])) / 2.0

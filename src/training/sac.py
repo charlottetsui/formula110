@@ -217,6 +217,23 @@ class SACAgent:
             }
         torch.save(payload, path)
 
+    def load_policy_only(self, path: str | Path, *, map_location: str = "cpu") -> None:
+        """Load only the actor's weights from a checkpoint, leaving critics/log_alpha at their fresh init.
+
+        Use when resuming into a training distribution different enough from
+        the one the checkpoint was trained under (e.g. a fixed, unfamiliar
+        opponent) that the checkpoint's own critics/entropy temperature are
+        poor priors for it -- a fully-converged actor typically has very low
+        `alpha` (little exploration noise) and confident-but-wrong critic
+        estimates for states it never saw in training, which `load` would
+        carry over verbatim. This keeps the warm-started actor but restores a
+        fresh exploration budget (`log_alpha` at its `__init__` default) and
+        critics that learn the new distribution's Q-values from scratch
+        instead of inheriting stale ones.
+        """
+        payload = torch.load(path, map_location=map_location, weights_only=True)
+        self.policy.load_state_dict(payload["policy"])
+
     def load(self, path: str | Path, *, map_location: str = "cpu") -> None:
         """Load a checkpoint saved by `save`. Loads whichever keys are present."""
         payload = torch.load(path, map_location=map_location, weights_only=True)

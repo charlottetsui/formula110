@@ -4092,3 +4092,1442 @@ build artifact left over from then.
 2. Still open: the `controllers.minimum_viable` module gap -- without it
    the submission is capped at partial rubric points regardless of how
    good `race_faster` is.
+
+## 2026-09-10 15:40
+
+**Participants and contributions:** Charlotte (direction), Claude Code
+(implementation, training run, diagnosis, documentation).
+
+**Question or objective:** Following up on `combined-approach`'s merge of
+Lucy's imitation-learning work (`lucy-il`, merged via the `Build first
+clone model` commit) into this branch: explore ways to combine the SAC
+and imitation-learning tracks that are safer and could produce a faster
+car. After ruling out fine-tuning Lucy's behavior-cloned network directly
+(incompatible observation encodings -- 24-dim single-tick SAC vs. 336-dim
+8-frame-history clone -- and the risk of an untrained critic unlearning
+good BC behavior before it catches up), landed on: train the SAC
+controller against Lucy's rule-based `leaderboard_expert.py` as a fixed
+opponent instead of self-play, on the hypothesis that a genuinely
+different sparring partner would teach real opponent-avoidance where
+~5 reward-shaping attempts (causal tests 21-23, 33-34) had failed or
+regressed. Directed to always train against the expert going forward and
+look for improvement.
+
+**What we investigated or changed:**
+- Added a `--opponent {self,expert}` flag to `scripts/train_sac.py`
+  (default `self`, preserving all existing behavior/reproducibility of
+  every prior documented experiment). With `--opponent expert`, the
+  incumbent is a frozen `controllers.leaderboard_expert.Controller`
+  instance instead of a second `TrainableController`; only the challenger
+  learns/pushes transitions to the shared buffer. Guarded
+  `--copies-per-side` to 1 in this mode, since
+  `leaderboard_expert.Controller` has no `copy_for_car` and its mutable
+  per-car state (recovery timer, previous steer) would otherwise be
+  shared and corrupted across multiple incumbent copies.
+  `main()` additionally adds `leaderboard_expert` itself as an extra
+  evaluation baseline when `--opponent expert` is used, so results show
+  whether the trained policy can beat the opponent it practiced against,
+  not just the two standard baselines.
+- Ran the full test suite (186 passed), `ruff check`/`ruff format --check`
+  (clean), and `pyright` in strict mode (0 errors) on the changed file
+  before treating the plumbing as trustworthy.
+- Smoke-tested the new code path with a tiny run (2 races, 15s rounds) to
+  confirm it executes end-to-end and correctly adds the new eval baseline,
+  before spending the ~3-minute wall-clock cost of a full comparable run.
+- Ran the full comparison: identical hyperparameters to the current
+  reference checkpoint's original training run
+  (`2026-09-08_seed-sweep-v2-8000`: seed 8000, races=40, round_seconds=120,
+  n_step=3, hidden_size=128, buffer_capacity=800000), changing only
+  `--opponent` from `self` to `expert`.
+
+**Evidence:**
+- Sources or documentation: re-read `src/controllers/leaderboard_expert.py`
+  in full before proposing this direction, to confirm it's a genuinely
+  different (rule-based, deterministic) driving style rather than another
+  learned policy, and specifically that it already encodes exactly the
+  hazard rules (competitor-proximity speed cap, speed-scaled wall-braking
+  horizon, stuck recovery) that this track's reward-shaping attempts at
+  the same problems had failed on.
+- AI-agent assistance: Claude Code wrote the `--opponent` flag and its
+  guard, ran `ruff`/`pyright`/`pytest`, ran the smoke test and the full
+  comparison training run, computed aggregate eval metrics directly from
+  `eval_results.json` (avg damage/off-track/wall-contact/car-contact/laps/
+  lap-time/speed/elimination across all races) rather than trusting only
+  the per-race console output, and diagnosed the regression from
+  `metrics.csv`'s critic-loss/alpha trends rather than reporting the eval
+  numbers alone.
+- Commits or code: `scripts/train_sac.py` (`--opponent` flag, guard,
+  extra eval baseline).
+- Experiment output:
+  `experiments/2026-09-10_expert-opponent-seed8000/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a -- not adopted, `race_faster.py` unchanged.
+
+**What we observed:** Training against the fixed expert opponent for the
+full run, from random initialization, produced a **severe regression**,
+not an improvement -- 100% elimination across all 30 evaluated races
+(vs. 0/20 for the reference), avg laps 0.63 (vs. 7.30), and losses to
+`default_student_controller` (2/10 wins, down from 20/20) and to the
+expert itself (0/10). Notably, avg opponent-collision time was actually
+*lower* than the reference (0.27s vs. 1.21s) -- so this is not a
+recurrence of the causal-test-21-23 opponent-collision failure mode; the
+car crashes into walls at very high speed (avg max speed 37.3 vs. 26.7
+m/s) instead. `metrics.csv` shows real training instability (critic loss
+swinging 3.5 -> 48.7 over the run rather than settling; the entropy
+temperature `alpha` collapsing from ~1.0 to ~0.03 very early, i.e. the
+policy became confidently deterministic before the critic had anything
+reliable to be confident about), and total transitions collected
+(111,472) were far short of the theoretical maximum for 40 uninterrupted
+races -- meaning the challenger was also being eliminated frequently
+*during* training, not just in evaluation. Likely root cause: unlike
+self-play (where the incumbent co-evolves with the challenger, so
+opponent difficulty always roughly matches current skill), a fixed,
+already-competent expert opponent from tick zero exposes an unskilled
+early-training policy to a training distribution dominated by
+"recovering from/chasing a much faster car" rather than clean solo
+driving, plausibly biasing the whole run toward reckless, low-exploration
+behavior rather than the safe driving self-play produces.
+
+**Decision and rationale:** Not adopted. `--opponent` defaults to `self`;
+the reference checkpoint (`2026-09-08_seed8000-resumed-short`) and
+`race_faster.py` are unchanged. This rejects the literal "always train
+against the expert from scratch" version of the combined-approach
+direction as tested -- the hypothesis that a different sparring partner
+would straightforwardly teach better opponent-awareness was wrong, or at
+least wrong for a full from-scratch run; reporting this plainly rather
+than treating it as validating the underlying idea. The `--opponent`
+flag and its test coverage are kept in code (default off), following this
+track's convention of preserving tested-but-rejected mechanisms rather
+than deleting them.
+
+**Next steps:**
+1. A curriculum variant is untested and more consistent with what
+   actually differs here: `--resume-from` an already-good self-play
+   checkpoint and fine-tune against the expert for a small dose of races
+   (mirroring causal test 32's successful small-dose fine-tuning pattern),
+   rather than training against it from random init for the full run.
+2. A mixed-opponent variant (alternating self-play and expert-opponent
+   races within one run) is also untested and would avoid committing the
+   entire training trajectory to the harder distribution before the
+   policy has any baseline competence.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-10 (continued) 17:30
+
+**Participants and contributions:** Charlotte (direction: "continue to
+fine tune until we find where we can make positive change"), Claude Code
+(implementation, six training runs, diagnosis, documentation).
+
+**Question or objective:** Following up on this session's earlier
+regression (training against `leaderboard_expert` from scratch), test
+whether *fine-tuning* the existing reference checkpoint against the
+expert -- a small, targeted nudge rather than retraining from random
+init -- can find a genuine improvement, iterating across doses and resume
+strategies until either a positive result or a clear stopping point is
+found.
+
+**What we investigated or changed:**
+- Tested resuming `2026-09-08_seed8000-resumed-short` and continuing
+  training against `leaderboard_expert` at two doses each of two resume
+  strategies (4 runs): full resume (`--resume-from`, existing flag: loads
+  policy + critics + entropy temperature) at 2 and 10 races.
+- Diagnosed both full-resume doses as a near-total collapse (27-29/30
+  eliminated) within a handful of races. Hypothesized the checkpoint's
+  already-near-zero entropy temperature (`log_alpha`, converged to ~0.035
+  from its own self-play training) left it with almost no exploration
+  budget to recover once the unfamiliar opponent distribution started
+  producing mistakes.
+- To test that hypothesis, added `SACAgent.load_policy_only`
+  (`src/training/sac.py`) and a `--resume-policy-only` flag
+  (`scripts/train_sac.py`): loads only the actor's weights, leaving
+  critics and `log_alpha` at fresh `__init__` values (full exploration
+  budget restored). Ran ruff/pyright/pytest (186 passed) before using it.
+- Ran this policy-only mode at four doses (2, 10, 20, 40 races) against
+  the expert, each evaluated against the same fixed 5-seed set and all
+  three baselines (`crash_fast`, `default_student_controller`,
+  `leaderboard_expert`).
+
+**Evidence:**
+- AI-agent assistance: Claude Code wrote `load_policy_only` and
+  `--resume-policy-only`, ran `ruff check`/`ruff format --check`/`pyright`
+  (clean) and the full test suite (186 passed) before using the new code
+  path, ran all 6 training+eval runs, and computed aggregate metrics
+  (avg damage/off-track/wall-contact/car-contact/laps/lap-time/speed,
+  elimination counts, per-baseline win counts) directly from each run's
+  `eval_results.json` rather than relying on console output alone, plus
+  inspected `metrics.csv`'s critic-loss/alpha trends to diagnose *why*
+  each variant behaved as it did, not just what the final numbers were.
+- Commits or code: `src/training/sac.py` (`SACAgent.load_policy_only`),
+  `scripts/train_sac.py` (`--resume-policy-only` flag + guard).
+- Experiment output: six new run directories under `experiments/`
+  (`2026-09-10_expert-finetune-dose2-seed8000`,
+  `...-dose10-seed8000`, `...-policyonly-dose2-seed8000`,
+  `...-policyonly-dose10-seed8000`, `...-policyonly-dose20-seed8000`,
+  `...-policyonly-dose40-seed8000`, each with its own `config.yaml`/
+  `metrics.csv`/`eval_results.json`/`checkpoints/`/`notes.md`), plus a
+  consolidated comparison and decision in
+  `experiments/2026-09-10_expert-opponent-seed8000/followup_finetune_sweep.md`.
+- Leaderboard result: n/a -- not adopted, `race_faster.py` unchanged.
+
+**What we observed:** Full resume collapsed at both doses tested (27-29/30
+eliminated), confirming the near-zero-exploration hypothesis was at least
+plausible enough to act on. Policy-only resume was a qualitatively
+different, much more stable regime at every dose (1-14/30 eliminated, vs.
+27-29 for full resume), with a real, mostly-monotonic improving trend as
+dose increased from 2 to 40 races: avg damage, laps completed, and lap
+time all improved substantially, and by dose=20 the policy already swept
+20/20 against both standard baselines, matching the reference's win
+record there. **But even at dose=40 (matching the original from-scratch
+run's total training length), no variant closed the gap to the
+reference on any metric, and the best-performing variant's avg
+car-contact time (4.326s) was *higher* than the reference's (1.702s) --
+worse, not better, on the exact metric this entire combined-approach
+direction was meant to improve.** Full comparison table in
+`followup_finetune_sweep.md`.
+
+**Decision and rationale:** Not adopted at any tested dose or resume
+mode; `2026-09-08_seed8000-resumed-short` remains the reference checkpoint
+and `race_faster.py` is unchanged. Recommending a pause on this specific
+direction (fine-tuning against a fixed expert opponent) rather than
+running further doses by default -- the trend is real but has not yet, at
+any point tested, actually improved opponent-avoidance, which was the
+original motivation, and closing the remaining gap to the reference looks
+like it would require substantially more compute for an uncertain payoff.
+`--opponent expert` and `--resume-policy-only` are kept in code (both
+default off) as tested, working, documented mechanisms, per this track's
+convention of preserving negative results rather than deleting the code
+that produced them.
+
+**Next steps:**
+1. If revisited: a mixed-opponent curriculum (alternating self-play and
+   expert-opponent races within one run, rather than switching to the
+   expert entirely after an initial phase) is structurally different from
+   every variant tried here and remains untested.
+2. Otherwise, treat the reference checkpoint as the best available for
+   this direction and redirect combined-approach effort elsewhere -- e.g.
+   the earlier-discussed shielded/safety-override idea (borrowing
+   `leaderboard_expert`'s hazard rules as an inference-time override
+   rather than a training signal), which carries none of this
+   training-instability risk since it never retrains the policy.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-10 (continued) 19:20
+
+**Participants and contributions:** Charlotte (direction: explore other
+combined-approach ideas after the fine-tuning search found nothing),
+Claude Code (design, implementation, experiment, documentation).
+
+**Question or objective:** Since training against the expert (as opponent,
+in either resume mode) never once helped the target problem
+(opponent-collision time) despite 7 tested variants, try a mechanism that
+combines the two tracks' work without ever leaving self-play's
+proven-stable training distribution: reward SAC for matching the expert's
+action, but only during the specific hazard states already tracked by the
+reward function.
+
+**What we investigated or changed:**
+- Added `WEIGHT_EXPERT_MATCH` and helper functions `_in_hazard`/
+  `_expert_match_penalty` to `src/training/reward.py`: `step_reward` now
+  optionally accepts `previous_action`/`expert_action` (both default
+  `None`, so every existing call site and test is unaffected) and adds a
+  bonus for the two being close, restricted to ticks where the existing
+  wall/robot-proximity checks already judge the state hazardous.
+- Added a private, non-controlling shadow instance of
+  `controllers.leaderboard_expert.Controller` to `TrainableController`
+  (`src/training/controller.py`, new `expert_match` constructor flag,
+  propagated through `copy_for_car`), fed every tick's real sensors purely
+  to compute what the expert would have done -- it never drives the car,
+  and self-play's actual opponent is completely unchanged.
+- Added a `--expert-match-bonus` flag to `scripts/train_sac.py`, wired to
+  both challenger and incumbent (both remain ordinary `TrainableController`
+  self-play instances -- `--opponent` was left at its default `self`).
+- Wrote 7 new unit tests (`tests/test_training_reward.py`,
+  `tests/test_training_controller.py`) covering: the bonus is a no-op
+  without both actions present, it only applies in a hazard state, it's
+  zero when actions already match, it scales with action distance, the
+  weight is currently enabled, and the controller runs/pushes normally
+  with the flag on (including through `copy_for_car`). Ran the full suite
+  (193 passed), `ruff check`/`ruff format --check` (one line-length fix
+  needed), and `pyright` strict mode (clean) before running any training.
+- Ran a full training experiment matching the *original* from-scratch
+  config of the current reference checkpoint's lineage
+  (`2026-09-08_seed-sweep-v2-8000`: seed=8000, races=40,
+  round_seconds=120, n_step=3, hidden_size=128, buffer_capacity=800000)
+  with only `--expert-match-bonus` added.
+
+**Evidence:**
+- Sources or documentation: re-derived the hazard predicate directly from
+  the existing `_wall_proximity_penalty`/`_robot_proximity_penalty`
+  functions already in `training/reward.py`, rather than introducing new
+  distance thresholds, so "hazard" means exactly what those
+  (independently reward-shaped) mechanisms already treat as dangerous.
+- AI-agent assistance: Claude Code designed and implemented the mechanism,
+  wrote and ran the new tests, ran `ruff`/`pyright`/`pytest` before
+  training, ran the training+eval experiment, computed aggregate metrics
+  directly from `eval_results.json` (not console output alone), inspected
+  `metrics.csv` for training-stability confirmation, and cross-checked
+  per-race detail to confirm the result wasn't one outlier.
+- Commits or code: `src/training/reward.py` (`WEIGHT_EXPERT_MATCH`,
+  `_in_hazard`, `_expert_match_penalty`, extended `step_reward` signature),
+  `src/training/controller.py` (`expert_match` flag, shadow expert),
+  `scripts/train_sac.py` (`--expert-match-bonus` flag), 7 new tests.
+- Experiment output:
+  `experiments/2026-09-10_expert-match-bonus-seed8000/` (`config.yaml`,
+  `metrics.csv`, `eval_results.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a -- not yet adopted, `race_faster.py` unchanged.
+
+**What we observed:** Versus the matched from-scratch reference
+(`2026-09-08_seed-sweep-v2-8000`): avg car-contact time (the target
+metric) improved 1.212s -> 1.136s (-6%), avg damage improved 0.0298 ->
+0.0129 (-57%), avg max speed rose 26.65 -> 35.11 m/s (+32%), and avg laps
+(7.30) / avg best lap time (14.96s -> 14.98s) / eliminations (0/20) /
+wins (20/20 vs. both baselines) all held essentially unchanged. The
+trade-off: avg off-track (0.152s -> 0.372s) and avg wall-contact (0.107s
+-> 0.236s) both rose, though both remain small in absolute terms and
+`metrics.csv` shows no training instability (critic loss and entropy
+settled normally throughout, unlike every expert-*opponent* experiment
+earlier today) and per-race detail shows the increase spread across
+several races/seeds rather than one outlier. This also compares
+favorably to the currently-packaged reference
+(`2026-09-08_seed8000-resumed-short`) on car-contact, lap time, and max
+speed, at the cost of a still-negligible damage increase (0.0129 vs.
+0.0004, both far from elimination).
+
+**Decision and rationale:** This is the first combined-approach
+experiment today where the actual target metric (opponent-collision time)
+improved, together with real gains in damage and speed at essentially no
+lap-time cost -- a genuine, if modest, positive result, and the first one
+found all day. Not unilaterally repackaging `race_faster.py` -- presenting
+this as a candidate for direction, consistent with how earlier
+judgment-call improvements on this track (e.g. causal test 27) were
+handled. This is a single run/seed; per this track's own established
+caution about n=1 results, it demonstrates the mechanism *can* help, not
+that it reliably will.
+
+**Next steps:**
+1. Await direction on whether to adopt this checkpoint or repackage
+   `controllers.race_faster` from it.
+2. A seed sweep would establish robustness versus one favorable draw --
+   not yet done for this mechanism.
+3. The off-track/wall-contact increase is small but unexplained -- a
+   per-tick diagnostic on one of the nonzero races would help if this
+   direction is pursued further.
+4. `WEIGHT_EXPERT_MATCH = 0.5` was chosen by analogy to
+   `WEIGHT_WALL_PROXIMITY`'s scale, not tuned by a dedicated sweep.
+5. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-11 (combined-approach) 10:15
+
+**Participants and contributions:** Charlotte (direction: build a
+literal, visible combination of the SAC and imitation-learning tracks,
+after confirming the training-time reward nudge was too subtle to count
+as "using both approaches" in the final controller), Claude Code (design,
+implementation, evaluation, documentation).
+
+**Question or objective:** Build a controller where both tracks' finished
+work is literally present and visible in the final artifact, not just a
+training-time influence baked into weights -- SAC drives normally, and
+`controllers.leaderboard_expert` (the separate imitation-learning track's
+rule-based expert) takes over control during specific hazard moments.
+
+**What we investigated or changed:**
+- Added `src/controllers/hybrid_controller.py`: composes
+  `controllers.race_faster` (this track's packaged SAC checkpoint,
+  `2026-09-08_seed8000-resumed-short`) and `controllers.leaderboard_expert`
+  (Lucy's hand-written expert) by calling both every tick and returning
+  the expert's command during a wall- or robot-proximity hazard (duplicated
+  threshold constants matching `training.reward`'s existing hazard
+  definition), SAC's command otherwise. Both sub-controllers are always
+  called, not just the active one, since `leaderboard_expert.Controller`
+  is stateful (a stuck-recovery timer, previous-tick steer/throttle) and
+  must see every tick to stay consistent with the real race. Implements
+  its own `copy_for_car` (fresh sub-controller instances per car) so the
+  expert's recovery state is never shared across cars in a race.
+- Confirmed via `scripts/export_student_controllers.py`'s own
+  AST-based dependency walker (`local_controller_dependencies`) that a
+  controller importing two sibling `controllers.*` modules packages
+  correctly (already how every real submission is built, per this
+  track's established `--all-controllers` convention).
+- Wrote 8 new unit tests (`tests/test_hybrid_controller.py`): hazard
+  hand-off for a close wall and a close ahead competitor, no hand-off for
+  a distant or off-angle competitor, command stays in documented ranges,
+  and a copy's expert state is independent of the original's. Ran the
+  full suite (200 passed), `ruff check`/`ruff format --check`, and
+  `pyright` strict mode (all clean) before evaluating in a real race.
+- Ran a real single race (`racing h2h`, headless, seed 110) to confirm it
+  works end to end, then a proper evaluation: the hybrid across the fixed
+  5-seed set against all three available opponents
+  (`crash_fast`, `default_student_controller`, `leaderboard_expert`,
+  2 races each, 120s rounds -- the same protocol
+  `training.evaluation.evaluate_against_baselines` uses). Also ran plain
+  `controllers.race_faster` (no shield) against `leaderboard_expert`
+  under the identical protocol, since that specific matchup (pure SAC vs.
+  the expert as a live, aggressive opponent) had never been tested before
+  -- every prior reference number only came from racing against the two
+  much slower/less aggressive standard baselines.
+
+**Evidence:**
+- AI-agent assistance: Claude Code designed and implemented the module,
+  wrote and ran the new tests, verified real-race behavior via `racing
+  h2h --json`, ran both evaluation sweeps via a short one-off script using
+  `run_headless_head_to_head` directly, and computed aggregate metrics
+  from the raw per-race results to compare fairly (same-opponent
+  comparisons, not just against numbers from a different, easier
+  matchup).
+- Commits or code: `src/controllers/hybrid_controller.py`,
+  `tests/test_hybrid_controller.py` (8 tests).
+- Experiment output: `experiments/2026-09-11_hybrid-controller-eval/`
+  (`notes.md`, `hybrid_eval.json`, `pure_sac_vs_expert.json`).
+- Leaderboard result: n/a -- not adopted.
+
+**What we observed:** The hybrid **reduces average wall/car-contact and
+off-track time in both matchups tested, but increases the elimination
+rate in both** -- vs. the two standard baselines, 0/20 -> 1/20 eliminated
+(avg damage 0.0004 -> 0.0500, avg car-contact 1.702s -> 2.652s, though
+avg off-track/wall-contact both *dropped*); vs. `leaderboard_expert` as a
+live opponent (first time either the shielded or plain SAC controller had
+been tested against it), 0/10 -> 6/10 eliminated (avg damage 0.1471 ->
+0.6055) while avg car-contact/off-track/wall-contact all dropped
+somewhat. Fewer, shorter close calls on average, but the close calls that
+do happen are more often catastrophic -- not a clean improvement.
+
+**Decision and rationale:** Not adopted as a final controller. The
+mechanism is implemented correctly (routes as designed, fully tested,
+races successfully end to end), but the net safety effect is a genuine
+trade-off rather than an improvement, and the specific shape of that
+trade-off (rarer but more severe failures) is a worse kind of risk than
+the status quo. Likely mechanism (not yet directly confirmed with a
+per-tick trace): a hard switch hands full control to a completely
+different, independently-tuned control law with no continuity in the
+commanded action across the boundary -- if SAC and the expert would have
+commanded meaningfully different actions at the exact hand-off tick,
+that's a sudden control discontinuity at precisely the moment the car is
+already close to a wall or competitor. Consistent with a pattern already
+seen elsewhere on this track (docs/rl_design.md section 6): safety
+mechanisms here tend to produce all-or-nothing outcomes rather than
+smooth trade-offs. `controllers.hybrid_controller` is kept in the
+codebase as a real, tested artifact, not deleted, but not recommended for
+submission or racing as-is.
+
+**Next steps:**
+1. The most likely fix is smoothing the hand-off -- blend toward the
+   expert's action proportionally to hazard severity, or ease the
+   transition over a few ticks, instead of a hard one-tick switch. This
+   was flagged as an alternative when the shield idea was first proposed
+   and not yet built.
+2. A per-tick trace of one of the 6 `leaderboard_expert`-matchup
+   eliminations would directly confirm or rule out the discontinuous-
+   handoff hypothesis.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-11 (combined-approach, continued) 10:58
+
+**Participants and contributions:** Charlotte (direction: fix the
+shield's discontinuity problem by having SAC train on top of Lucy's
+controller as a base, i.e. "take Lucy's controller then use SAC to make
+it faster/more efficient"), Claude Code (design, implementation,
+experiment, evaluation, documentation).
+
+**Question or objective:** The hard-switch shield (previous entry)
+reduced average contact time but introduced a much higher catastrophic-
+crash rate, diagnosed as likely coming from the discontinuity of
+switching instantly between two unrelated control laws. Test the fix:
+make the expert's influence continuous instead of switched, by having
+SAC learn a bounded correction on top of the expert's action every tick
+("residual reinforcement learning") rather than taking over control
+entirely.
+
+**What we investigated or changed:**
+- Added a `residual_base` mode to `TrainableController`
+  (`src/training/controller.py`): `controllers.leaderboard_expert
+  .Controller`'s command becomes the base action every tick; the SAC
+  policy's own (tanh-bounded) output is scaled by a new
+  `RESIDUAL_ACTION_SCALE = 0.3` and added to it, clamped to `[-1, 1]`.
+  Critically, the *raw* policy output (not the blended command) is what
+  gets pushed to the replay buffer and what the SAC Bellman backup is
+  defined over, since that's the actual action space the policy controls
+  -- the reward still reflects the real physical consequence of the
+  blended command the car received. Mutually exclusive with
+  `expert_match` (raises `ValueError` if both set, since the
+  expert-match bonus assumes `previous_action` is an absolute command,
+  which it isn't once the policy outputs a correction instead).
+- Added `--residual-expert-base` to `scripts/train_sac.py`, wired to both
+  challenger and incumbent (both remain ordinary self-play
+  `TrainableController` instances -- `--opponent` stayed at `self`).
+- Fixed a real correctness gap this uncovered:
+  `training.evaluation.evaluate_against_baselines` built its own internal
+  `TrainableController` without knowing about `residual_base` -- silently
+  evaluating a residual-trained network's *correction* output as if it
+  were an absolute command. Added a `residual_base` parameter there and
+  threaded it through `scripts/train_sac.py`'s own evaluation call and a
+  matching `--residual-expert-base` flag on `scripts/eval_sac.py`, so
+  re-evaluating a residual checkpoint later can't silently produce wrong
+  numbers.
+- Wrote 4 new unit tests (`tests/test_training_controller.py`): the two
+  modes are mutually exclusive, the blended command exactly matches
+  `expert_command + RESIDUAL_ACTION_SCALE * raw_policy_action` (clamped),
+  the *raw* action (not the blended one) is what's pushed to the replay
+  buffer, and `copy_for_car` propagates the mode correctly. Ran the full
+  suite (204 passed), `ruff`/`ruff format --check`/`pyright` strict mode
+  (all clean) before training.
+- Ran a full training experiment matching the original from-scratch
+  reference config exactly (`2026-09-08_seed-sweep-v2-8000`: seed=8000,
+  races=40, round_seconds=120, n_step=3, hidden_size=128,
+  buffer_capacity=800000) with only `--residual-expert-base` added.
+- Evaluated the resulting checkpoint two ways: the standard protocol (vs.
+  `crash_fast`/`default_student_controller`, 20 races) and, critically,
+  the same live-opponent stress test that exposed the shield's failure
+  (vs. `leaderboard_expert` directly, 10 races) -- via a short one-off
+  script loading the checkpoint into a `residual_base=True` evaluation
+  controller, since this mode isn't packaged as a `controllers.*` module
+  yet.
+
+**Evidence:**
+- AI-agent assistance: Claude Code designed and implemented the
+  mechanism, wrote and ran the new tests, fixed the evaluation gap before
+  it could produce misleading numbers, ran the training experiment, ran
+  both evaluation sweeps, computed aggregate metrics directly from the
+  raw per-race results, and cross-checked `metrics.csv` for training
+  stability.
+- Commits or code: `src/training/controller.py` (`residual_base` mode,
+  `RESIDUAL_ACTION_SCALE`), `src/training/evaluation.py` (`residual_base`
+  parameter), `scripts/train_sac.py` and `scripts/eval_sac.py`
+  (`--residual-expert-base` flag), 4 new tests.
+- Experiment output: `experiments/2026-09-11_residual-expert-base-
+  seed8000/` (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not yet adopted.
+
+**What we observed:** Versus the matched from-scratch reference, standard
+protocol: avg laps 7.30 -> **10.10**, avg best lap time 14.96s ->
+**11.25s (-25%)**, still 0/20 eliminated, 20/20 wins -- damage/off-track/
+wall-contact all rose somewhat (0.0298 -> 0.0662 damage) but stayed small
+and zero eliminations held. Versus `leaderboard_expert` directly (the
+real test, since this is what exposed the shield's failure): eliminated
+0/10 (pure SAC) -> 6/10 (hard-switch shield) -> **1/10 (residual RL)** --
+recovering almost all of plain SAC's safety while being the fastest and
+most complete of all three variants (12.08s avg best lap time, 9.50 avg
+laps, both better than pure SAC *and* the shield). `metrics.csv` showed
+normal, stable training throughout, unlike every train-against-a-fixed-
+opponent experiment (causal test 35) -- confirming that changing the
+action *composition* (continuous base + correction) rather than the
+training *opponent* avoids that instability entirely, as intended.
+
+**Decision and rationale:** This is the strongest combined-approach
+result found this session -- a continuous correction on top of the
+expert, rather than a discontinuous switch, appears to be exactly the
+fix the shield's diagnosis called for. Not a perfect result (one
+elimination against the expert that plain SAC didn't have, and a real,
+not-yet-diagnosed outlier), and not unilaterally adopted or repackaged
+into `race_faster.py` -- presented as the strongest candidate for
+direction, consistent with this session's established practice.
+
+**Next steps:**
+1. Await direction on whether to adopt this (e.g. package a self-
+   contained `controllers.*` module analogous to `race_faster.py`).
+2. Diagnose the one elimination against the expert with a per-tick trace.
+3. A seed sweep would establish robustness versus one favorable draw.
+4. `RESIDUAL_ACTION_SCALE = 0.3` was chosen without a dedicated sweep.
+5. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-11 (combined-approach, continued) 11:32
+
+**Participants and contributions:** Charlotte (direction: diagnose the
+one crash from the previous entry and keep iterating until the combined
+controller surpasses both individual controllers), Claude Code (per-tick
+diagnosis, fix, retrain, evaluation, documentation).
+
+**Question or objective:** The residual-RL controller (previous entry)
+had one elimination out of 10 evaluation races against
+`leaderboard_expert`. Diagnose the root cause with a per-tick trace (the
+project's established method for outliers) and fix it, then check how
+close the result comes to actually surpassing plain SAC and Lucy's raw
+expert, not just the failed hybrid shield.
+
+**What we investigated or changed:**
+- Reproduced the exact crash (seed 2024, race 1) with a
+  `sensor_sample_callback` logging the challenger's tick/speed/wall
+  distance/contact/damage every tick, matching the project's established
+  outlier-diagnosis method. Found the car hit the *identical* wall
+  location 8 times over ~8 seconds (ticks 3576-4062+), each time backing
+  off via `leaderboard_expert.Controller`'s stuck-recovery maneuver
+  (reverse + a fixed hard steer for up to 28 ticks) and then driving
+  straight back into the same spot -- not a single high-speed impact.
+  Confirmed pure SAC (no residual) does not hit this at the same seed,
+  isolating the cause to the residual composition itself.
+- Root cause: the SAC correction was still being added on top of the
+  expert's command *during its own deliberate recovery maneuver*, likely
+  diluting a precise, fixed escape trajectory just enough that it never
+  fully cleared the obstacle before the next attempt.
+- Fixed in `src/training/controller.py`: detect when the base expert's
+  command is a recovery command (checking `leaderboard_expert
+  .Controller`'s `_recovery_ticks_remaining` counter both before and
+  after calling it, since a recovery maneuver can both start and be
+  mid-flight within a single call) and pass it through completely
+  unmodified in that case -- zero residual applied during recovery.
+- Verified the fix requires retraining, not just an inference patch:
+  applying it to v1's already-trained checkpoint reproduced the identical
+  crash (the policy had learned its behavior assuming its correction
+  always applied). Retrained fresh with the fix in place, identical
+  config to v1 otherwise (seed=8000, races=40, round_seconds=120,
+  n_step=3, hidden_size=128, buffer_capacity=800000).
+- Added a unit test (`tests/test_training_controller.py`) asserting the
+  controller returns the expert's exact recovery command
+  (`throttle == -1.0`, `abs(steer) == 0.9`) unmodified when triggered.
+  Ran the full suite (205 passed) and `ruff`/`pyright` (clean) before
+  retraining.
+- Re-ran the standard evaluation and the live-opponent stress test
+  against `leaderboard_expert` on the new checkpoint, specifically
+  re-checking seed 2024.
+- Also established Lucy's raw expert's own solo baseline (no
+  combination, racing alone against `crash_fast` under the identical
+  protocol) for a fair read on how close the combined controller comes to
+  actually surpassing her work, not just plain SAC.
+
+**Evidence:**
+- AI-agent assistance: Claude Code wrote and ran the diagnostic script,
+  identified the root cause from the trace, implemented and unit-tested
+  the fix, verified it required retraining (not just an inference patch)
+  before committing to the retrain, ran the retrain and both evaluation
+  sweeps, and computed all aggregate metrics directly from the raw
+  per-race results.
+- Commits or code: `src/training/controller.py` (recovery-passthrough
+  fix), `tests/test_training_controller.py` (1 new test).
+- Experiment output: `experiments/2026-09-11_residual-expert-base-v2-
+  seed8000/` (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not yet adopted.
+
+**What we observed:** The fix fully resolved the crash -- seed 2024 now
+completes cleanly both races (damage 0.0 and 0.009, 10 laps each, no
+elimination), and the live-opponent stress test overall went from 1/10 to
+**0/10 eliminated, matching pure SAC's perfect record**. This wasn't a
+narrow fix either: every safety metric on the *standard* baseline
+evaluation improved too (avg damage 0.0662 -> 0.0254, avg off-track
+0.537s -> 0.325s, avg wall-contact 0.256s -> 0.140s, avg car-contact
+1.669s -> 1.468s) while keeping the same large speed/lap gains (avg best
+lap time ~11.3-11.4s vs. the reference's 14.96s, ~35% faster). Against
+the expert specifically, this version is now the fastest and most
+complete of every variant tested this session (11.78s avg best lap time,
+9.80 avg laps -- better than pure SAC, the shield, *and* v1). For honest
+context: Lucy's raw expert alone (no combination) still laps faster in
+isolation (8.94s avg, 0.047 avg damage, 0/10 eliminated, same protocol) --
+this combined controller has not closed that specific gap, though it now
+clearly and unambiguously surpasses plain SAC alone and the failed hybrid
+shield on every metric tracked.
+
+**Decision and rationale:** Not unilaterally adopted or repackaged into
+`race_faster.py` -- presented as the strongest, most complete combined-
+approach candidate found this session, and a materially stronger case for
+adoption than either prior candidate (the shield, or v1) since it now
+dominates rather than trades off against plain SAC.
+
+**Next steps:**
+1. Await direction on adoption / packaging as a self-contained
+   `controllers.*` module.
+2. Closing the remaining pace gap to Lucy's raw expert (8.94s) would
+   likely need more training, a larger `RESIDUAL_ACTION_SCALE`, or may
+   partly reflect her expert's greater risk tolerance that a controller
+   optimizing for both speed and safety may not fully match by design.
+3. A seed sweep would establish robustness versus one favorable draw --
+   not yet done for either residual version.
+4. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-11 (combined-approach, continued) 11:57
+
+**Participants and contributions:** Charlotte (direction: push further on
+the remaining speed gap to Lucy's raw expert and try to close or surpass
+it), Claude Code (implementation, experiment, honest negative result,
+documentation).
+
+**Question or objective:** v2's residual controller still laps
+noticeably slower (11.37-11.78s) than Lucy's raw expert alone (8.94s,
+same protocol). Test the most direct lever specific to this mechanism:
+give the policy's correction more room to shift the expert's baseline
+action, on the hypothesis that the current cap (`RESIDUAL_ACTION_SCALE =
+0.3`) might be limiting how much the policy can improve on the expert's
+line/pace.
+
+**What we investigated or changed:**
+- Made `RESIDUAL_ACTION_SCALE` configurable instead of a hardcoded
+  constant: added `residual_scale` to `TrainableController.__init__`
+  (default unchanged), threaded through `copy_for_car`,
+  `training.evaluation.evaluate_against_baselines`, and a new
+  `--residual-action-scale` flag on both `scripts/train_sac.py` and
+  `scripts/eval_sac.py`. Added a unit test confirming a larger scale
+  produces a larger deviation from the expert's command. Ran the full
+  suite (206 passed) and `ruff`/`pyright` (clean) before training.
+- Trained fresh at `--residual-action-scale 0.45` (up from 0.3), config
+  otherwise identical to v2 (seed=8000, races=40, round_seconds=120,
+  n_step=3, hidden_size=128, buffer_capacity=800000).
+- Evaluated the same two ways as v2: the standard protocol (vs.
+  `crash_fast`/`default_student_controller`) and the live-opponent stress
+  test (vs. `leaderboard_expert` directly).
+
+**Evidence:**
+- AI-agent assistance: Claude Code implemented and unit-tested the
+  configurable scale, ran the training experiment, ran both evaluation
+  sweeps, computed aggregate metrics from the raw per-race results, and
+  checked `metrics.csv` for training stability before concluding this
+  was a genuine behavioral regression rather than an unstable run.
+- Commits or code: `src/training/controller.py` (`residual_scale`
+  parameter), `src/training/evaluation.py` (`residual_scale` parameter),
+  `scripts/train_sac.py` and `scripts/eval_sac.py`
+  (`--residual-action-scale` flag), 1 new test.
+- Experiment output: `experiments/2026-09-11_residual-scale045-
+  seed8000/` (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not adopted.
+
+**What we observed:** A clean, consistent regression across both
+evaluation protocols, not an unstable-training artifact (`metrics.csv`
+showed normal, bounded critic loss and smoothly settling entropy). Versus
+the standard baselines: avg off-track time rose 17.6x (0.325s -> 5.737s),
+avg wall-contact rose 23.6x (0.140s -> 3.305s), avg damage rose 5x, avg
+laps dropped, and one race was lost outright (19/20, down from 20/20) --
+**and lap time itself got slightly slower, not faster** (11.37s ->
+11.83s), which was the entire point of the change. The live-opponent
+stress test showed the identical pattern (off-track 7.5x worse,
+wall-contact 8.8x worse, lap time slower). The extra correction budget
+was not spent on a faster line -- it produced more erratic, wall/off-
+track-prone driving instead.
+
+**Decision and rationale:** Not adopted; reverted.
+`2026-09-11_residual-expert-base-v2-seed8000` (`residual_scale=0.3`, the
+default) remains the best combined-approach checkpoint found this
+session. `--residual-action-scale` is kept as a configurable, tested
+parameter (default unchanged) per this track's convention. This specific
+lever is treated as exhausted after one clear negative result -- not
+continuing to search this axis without a different underlying idea. The
+remaining pace gap to Lucy's raw expert (8.94s) may be partly structural:
+her expert explicitly accepts more risk to maximize speed, while the RL
+reward function balances speed against safety by design, which may set a
+genuine ceiling below a pure-speed controller for anything optimizing
+both objectives at once.
+
+**Next steps:**
+1. This axis (residual scale) is exhausted for now -- a different lever
+   (more training at the existing scale, or residual-mode-specific
+   reward tuning) would be needed to make further progress on pace,
+   distinct from simply giving the correction more room.
+2. Otherwise, treat v2 as the practical best result for this track's
+   combined-approach work: it already unambiguously surpasses plain SAC
+   alone and the hybrid shield on every safety and pace metric tracked,
+   even though it hasn't closed the gap to Lucy's raw, safety-unconstrained
+   pace.
+3. A seed sweep would establish robustness versus one favorable draw for
+   v2 specifically.
+4. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 09:26
+
+**Participants and contributions:** Charlotte (direction: keep improving
+the combined controller via residual RL toward concrete improvements),
+Claude Code (experiment, documentation).
+
+**Question or objective:** Test the opposite direction from the failed
+`scale=0.45` experiment -- a *narrower* correction (`residual_scale=0.15`,
+down from v2's `0.3`), on the hypothesis that the wider correction's
+erratic driving (from the prior entry) meant the correction's value was
+mostly about smoothing rather than speed-finding, so tightening it
+further might reduce erratic driving without much speed cost.
+
+**What we investigated or changed:**
+- Trained fresh at `--residual-action-scale 0.15`, config otherwise
+  identical to v2 (seed=8000, races=40, round_seconds=120, n_step=3,
+  hidden_size=128, buffer_capacity=800000).
+- Evaluated the same two ways as every prior residual variant: the
+  standard protocol and the live-opponent stress test vs.
+  `leaderboard_expert`.
+
+**Evidence:**
+- Experiment output: `experiments/2026-09-12_residual-scale015-seed8000/`
+  (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not adopted.
+
+**What we observed:** Not simply safer. On the standard baselines,
+average damage improved (0.0254 -> 0.0100), but every other metric got
+worse (avg off-track 0.325s -> 0.593s, avg wall-contact 0.140s -> 0.280s,
+avg laps 10.15 -> 9.45, avg best lap time 11.37s -> 12.08s). In the harder
+live-opponent test, a real elimination reappeared (0/10 -> 1/10, exactly
+what v2 had eliminated) alongside worse car-contact, laps, and pace.
+`metrics.csv` showed normal, stable training -- a real behavioral
+difference, not an unstable run. The hypothesis that a narrower
+correction would simply reduce erratic driving was wrong: it has less
+power to react when a real course change is genuinely needed (e.g.
+avoiding a closing competitor), trading a small average-damage
+improvement for worse outcomes almost everywhere else, including a
+reintroduced crash.
+
+**Decision and rationale:** Not adopted. Combined with the prior
+`scale=0.45` result, this closes out the residual-scale axis -- three
+points now tested (0.15, 0.3, 0.45), and `0.3` (v2) wins outright or ties
+on nearly every metric in both directions. This is a genuine local
+optimum, not an arbitrary first guess. Recommending further concrete
+improvement come from a different lever, not more points on this axis.
+
+**Next steps:**
+1. A seed sweep (genuine network-initialization diversity, holding the
+   locked-in v2 config fixed) is the project's own best-precedented way
+   of finding real gains -- see the plain SAC track's causal tests 24-32,
+   which found real, substantial improvements this way. Not yet tried
+   for residual mode.
+2. Otherwise, treat v2 (`2026-09-11_residual-expert-base-v2-seed8000`)
+   as the practical best combined-approach result.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 (continued) 12:59
+
+**Participants and contributions:** Charlotte (direction: keep pushing
+residual RL toward concrete improvements), Claude Code (seed sweep,
+documentation).
+
+**Question or objective:** With the residual-scale axis closed out
+(prior entry), try this project's own best-precedented lever for finding
+real gains: sample fresh network initializations at the locked-in best
+config, mirroring the plain-SAC track's successful seed-sweep method
+(causal tests 24-32).
+
+**What we investigated or changed:** Trained two fresh seeds (9000,
+10000) at the locked-in config (residual_base=True,
+residual_action_scale=0.3, recovery-passthrough fix), config otherwise
+identical to v2 (races=40, round_seconds=120, n_step=3, hidden_size=128,
+buffer_capacity=800000). Evaluated both the same two ways as v2: the
+standard protocol and the live-opponent stress test vs.
+`leaderboard_expert`.
+
+**Evidence:**
+- Experiment output: `experiments/2026-09-12_residual-seedsweep-9000/`
+  and `experiments/2026-09-12_residual-seedsweep-10000/` (each with
+  `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a -- neither adopted.
+
+**What we observed:**
+
+| | v2 (seed=8000) | seed=9000 | seed=10000 |
+| --- | --- | --- | --- |
+| eliminated (standard) | 0/20 | **1/20 (worse)** | 0/20 |
+| avg damage (standard) | 0.0254 | 0.0682 | 0.0319 |
+| avg laps (standard) | 10.15 | 9.45 | 9.25 |
+| avg best lap time (standard) | 11.37s | 11.64s | 12.31s |
+| eliminated (vs. expert) | 0/10 | -- | 0/10 |
+| avg best lap time (vs. expert) | 11.78s | -- | 12.55s |
+
+Seed 9000 was clearly worse (a reintroduced elimination plus worse
+damage/laps/pace). Seed 10000 was mixed -- it matched v2's elimination
+record and even improved car-contact time, but lost on off-track/
+wall-contact/laps/pace in both evaluation protocols. Neither beat v2
+overall. `metrics.csv` showed stable training for both -- these are
+genuine differences in what each initialization converged to, not
+broken runs.
+
+**Decision and rationale:** Neither adopted.
+`2026-09-11_residual-expert-base-v2-seed8000` remains the best checkpoint
+after two sampled seeds. This is not surprising on its own -- the plain
+SAC track's own seed sweeps found a similar low per-seed hit rate for a
+strict improvement (roughly 10-20%, meaning multiple draws are often
+needed) -- but two failed draws is a real, if inconclusive, data point.
+
+**Next steps:**
+1. Awaiting direction: continue sampling more seeds (a larger batch, per
+   the plain SAC track's own convention of batches of 5), or conclude
+   the seed sweep here given the compute already spent this session and
+   settle on v2 as the final combined-approach result.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 (continued) 13:16
+
+**Participants and contributions:** Charlotte (direction: keep sampling,
+explicitly targeting a checkpoint that beats Lucy's raw expert's pace,
+not just plain SAC), Claude Code (two more seed draws, documentation).
+Also coordinated with another Claude session (`formula110-8d`) that
+reached out mid-task about to start its own combined-approach work in
+this same repo -- confirmed no training/eval was left running and no
+directory collisions, see that session's message and this session's
+reply for the handoff details.
+
+**Question or objective:** Sample two more fresh seeds (11000, 12000) at
+the locked-in v2 config, specifically checking whether any individual
+race or average approaches Lucy's raw solo pace (8.94s).
+
+**What we investigated or changed:** Trained seeds 11000 and 12000
+(residual_base=True, residual_action_scale=0.3, recovery-passthrough
+fix; races=40, round_seconds=120, n_step=3, hidden_size=128,
+buffer_capacity=800000 -- identical to v2 otherwise). Evaluated both the
+standard way and against `leaderboard_expert` directly, and this time
+also tracked the *minimum* individual lap time per checkpoint, not just
+the average, since a single fast lap is directly relevant to the
+"can it ever match Lucy's pace" question.
+
+**Evidence:**
+- Experiment output: `experiments/2026-09-12_residual-seedsweep-11000/`
+  and `experiments/2026-09-12_residual-seedsweep-12000/` (each with
+  `config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`,
+  `notes.md`).
+- Leaderboard result: n/a -- neither unilaterally adopted.
+
+**What we observed -- full 5-seed table (standard-baseline protocol):**
+
+| seed | avg damage | avg off-track | avg wall-contact | avg lap time | fastest lap | elim |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8000 (v2, reference) | 0.0254 | 0.325s | 0.140s | 11.37s | 10.33s | 0/20 |
+| 9000 | 0.0682 | 0.274s | 0.092s | 11.64s | -- | 1/20 |
+| 10000 | 0.0319 | 0.935s | 0.567s | 12.31s | -- | 0/20 |
+| 11000 | 0.0216 | 0.166s | 0.068s | 11.58s | 10.45s | 0/20 |
+| 12000 | **0.0020** | **0.076s** | **0.007s** | 11.57s | **10.23s** | 0/20 |
+
+Seed 11000 was a close, mixed result versus v2 (better off-track/
+wall-contact, slightly worse laps/pace/car-contact) -- neither clearly
+better nor worse. **Seed 12000 was a standout on safety**: 12.7x lower
+damage, 4.3x lower off-track time, 20x lower wall-contact time than v2,
+while essentially tying v2 on pace and actually setting a new fastest-
+individual-lap record (10.23s). Against `leaderboard_expert` directly,
+seed 12000 also had 11.6x lower damage than v2 and **became the first
+checkpoint of any kind on this track -- plain SAC, hybrid shield, or any
+residual variant -- to win a race outright against the expert** (seed
+8675309, race 2), though its *average* lap time there was slower than
+v2's (13.25s vs. 11.78s).
+
+**Consolidated read across all 5 seeds:** no seed has come close to
+Lucy's raw solo pace (8.94s) -- every sampled seed's average best lap
+time stays in the 11.4-13.3s range on both protocols (25-45% slower).
+The single fastest individual lap across all 5 seeds and both protocols
+is seed 12000's 10.23s -- the closest anyone has gotten, but still ~14%
+off Lucy's average, let alone her own best case. This consistency across
+5 genuinely different network initializations is evidence (not proof)
+that the pace gap is not primarily an initialization-luck problem -- it
+more likely reflects the reward function's structural balance of speed
+against safety, which every sampled seed converges toward in some form.
+
+**Decision and rationale:** Neither seed unilaterally adopted. Seed 12000
+is flagged as a genuinely strong *alternative* candidate to v2 -- arguably
+better overall if safety is weighted heavily, and notable as the first
+checkpoint to ever beat the expert outright -- but it does not advance
+the specific pace-vs-Lucy's-expert goal this sweep targeted. v2 remains
+the reference pending a decision on which axis (pace vs. safety) to
+prioritize.
+
+**Next steps:**
+1. Awaiting direction: adopt seed 12000 (safety-focused), keep sampling
+   more seeds one at a time (compute cost, uncertain payoff per the
+   consolidated read above), or try a different lever entirely (e.g.
+   residual-mode-specific reward tuning) if closing the pace gap
+   specifically remains the priority.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+**Addendum, same session:** added `src/controllers/residual_candidate.py`,
+a local-dev viewer (mirrors `sac_candidate.py`'s convention) for watching
+any residual-RL checkpoint race via `racing h2h --watch` -- no such
+module existed yet, so there was no way to actually watch the combined
+controller in the graphical viewer despite several checkpoints being
+fully evaluated. Defaults to the current reference (v2, seed=8000);
+`FORMULA110_RESIDUAL_CHECKPOINT` env var points it at any other
+checkpoint (e.g. seed=12000). Verified with a real headless race
+(`racing h2h`, seed 110) before treating it as working; full suite (206
+tests) still passes.
+
+## 2026-09-12 (continued) 14:10
+
+**Participants and contributions:** Charlotte (direction: keep iterating
+with RL + IL until the combined controller beats the expert on lap time
+and speed, not just plain SAC), Claude Code (new mechanism, experiment,
+honest negative result, documentation).
+
+**Question or objective:** Try a genuinely different lever than the
+residual-scale sweep and the seed sweep (both closed out, neither closed
+the pace gap): reweight the reward function's speed-vs-caution balance
+specifically for residual-mode training, on the hypothesis that the
+caution terms -- tuned entirely for plain self-play, where the network
+supplies 100% of its own collision avoidance -- may be more conservative
+than residual mode needs, since the base action already comes from a
+competent expert.
+
+**What we investigated or changed:**
+- Added `progress_weight` as an optional override of
+  `training.reward.WEIGHT_PROGRESS`, threaded through `step_reward`,
+  `TrainableController` (new constructor parameter, propagated via
+  `copy_for_car`), and a new `--progress-weight` flag on
+  `scripts/train_sac.py`. Training-only (evaluation never computes
+  reward, so nothing needed changing in `training.evaluation` or
+  `scripts/eval_sac.py`). Default unchanged, so every existing caller is
+  unaffected unless the flag is passed explicitly.
+- Added a unit test confirming the override changes only the progress
+  term's contribution, holding everything else fixed. Ran the full suite
+  (207 passed) and `ruff`/`pyright` (clean, after fixing one pre-existing
+  test whose `**dict`-unpacking pattern no longer type-checked cleanly
+  once a same-named parameter of a different type was added) before
+  training.
+- Trained fresh at `--progress-weight 1.5` (up from the default 1.0),
+  config otherwise identical to v2. Evaluated both the standard protocol
+  and the live-opponent stress test vs. `leaderboard_expert`.
+
+**Evidence:**
+- Experiment output: `experiments/2026-09-12_residual-progressweight15-
+  seed8000/` (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not adopted.
+
+**What we observed:** The opposite of the intended effect, on every axis
+including the one this was meant to improve. Standard baselines: avg
+damage worse (0.0254 -> 0.0569), avg off-track worse (0.325s -> 0.532s),
+avg wall-contact worse (0.140s -> 0.252s), avg laps worse (10.15 -> 9.70),
+and **avg best lap time got slower, not faster** (11.37s -> 12.03s), with
+the fastest individual lap also getting slower (10.33s -> 11.48s). The
+identical pattern held against `leaderboard_expert` directly (avg lap
+time 11.78s -> 12.24s, fastest lap 11.48s, still 0/10 eliminated).
+`metrics.csv` showed no training instability (critic loss bounded, alpha
+settling smoothly) -- a genuine behavioral regression, not a broken run.
+
+**Decision and rationale:** Not adopted. This is the **third** consecutive
+combined-approach lever aimed at closing the pace gap to fail cleanly --
+after the residual-scale sweep (both directions) and the 5-seed
+initialization sweep, this is a third, structurally different mechanism
+(what the correction is trained to optimize for, rather than how much it
+can act or which policy it started from) pointing the same direction.
+Recommending against further from-scratch runs purely aimed at beating
+Lucy's raw pace via scale/seed/reward-weight tuning -- the evidence
+increasingly reads as a real structural trade-off (the pace a safety-
+unconstrained controller can hit vs. what one balancing speed against
+damage/off-track/wall-contact can sustain) rather than a nearby local
+optimum that the next tweak will escape.
+
+**Next steps:**
+1. If pace remains the priority, a genuinely different mechanism would
+   be needed -- e.g. reward shaping targeting cornering technique
+   specifically rather than a global speed/caution trade, or accepting a
+   higher damage/elimination rate as the deliberate cost of matching
+   Lucy's pace.
+2. Otherwise, treat this line of investigation as concluded: v2
+   (pace-balanced) and seed=12000 (safety-focused) are the two combined-
+   approach checkpoints worth keeping.
+3. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 (continued) 14:36
+
+**Participants and contributions:** Charlotte (direction: try the more
+invasive/riskier approach to see if any direction improves on the pace
+gap), Claude Code (new mechanism, experiment, honest negative result,
+documentation).
+
+**Question or objective:** Try a cornering-technique-specific reward
+shape, distinct from the three already-failed levers (residual scale,
+seed init, flat progress-weight). Concrete gap identified: `training.
+reward`'s `WEIGHT_CENTER_OFFSET` penalizes drifting off the centerline
+uniformly everywhere on the track, while `controllers.leaderboard_expert`
+itself explicitly treats corners and straights differently (its own
+`bend_score`, from lookahead offsets, only triggers caution for real
+bends). Hypothesis: gate the center-offset penalty by the same curvature
+signal, reduced on straights, full strength in corners, so straight-line
+speed isn't penalized for centerline drift that doesn't matter there --
+without touching the load-bearing cornering safety signal, unlike a 2026-
+09-03 attempt on the plain-SAC track that loosened this same weight
+*uniformly* (including in corners) and regressed badly.
+
+**What we investigated or changed:**
+- Added `_bend_score`/`_center_offset_curvature_scale` helpers to
+  `src/training/reward.py` (mirroring `leaderboard_expert.py`'s own
+  bend-score formula exactly) and a `curvature_aware_center_offset: bool
+  = False` parameter on `step_reward`, `TrainableController`, and a new
+  `--curvature-aware-center-offset` flag on `scripts/train_sac.py`.
+  Default unchanged, so every existing caller is unaffected unless
+  explicitly enabled.
+- Added 3 unit tests confirming: disabled by default, penalty reduced on
+  a straight (flat lookahead offsets), penalty unchanged in a sharp
+  corner (bend score above the reference threshold). Ran the full suite
+  (210 passed) and `ruff`/`pyright` (clean) before training.
+- Trained fresh with `--curvature-aware-center-offset`, config otherwise
+  identical to v2. Evaluated both the standard protocol and the live-
+  opponent stress test vs. `leaderboard_expert`.
+
+**Evidence:**
+- Experiment output: `experiments/2026-09-12_residual-curvature-aware-
+  seed8000/` (`config.yaml`, `metrics.csv`, `eval_results.json`,
+  `vs_leaderboard_expert.json`, `checkpoints/policy_final.pt`, `notes.md`).
+- Leaderboard result: n/a -- not adopted.
+
+**What we observed:** The fourth consecutive clean failure, and again not
+even a trade-off -- it lost safety (an elimination reappeared in *both*
+test protocols, 1/20 standard and 1/10 vs. the expert, both of which v2
+had eliminated) without gaining speed on average (avg best lap time
+11.37s -> 11.56s standard, 11.78s -> 11.98s vs. the expert; the fastest
+individual lap also got slower, 10.33s -> 11.20s standard). One
+genuinely encouraging data point -- a 10.28s individual lap against the
+expert, close to the existing 10.23s record -- wasn't enough to outweigh
+the reintroduced crashes. `metrics.csv` showed a critic-loss spike early
+in training (30.0 at the first checkpoint, well above every other
+residual run's typical range) that settled by the end -- not diverging,
+but not as clean throughout as prior runs either.
+
+**Decision and rationale:** Not adopted; reverted. This result is
+informative beyond a simple rejection: the hypothesis was specifically
+that the 2026-09-03 failure's *uniform* nature (touching corners too) was
+why it regressed, and that a curvature-gated version would avoid that --
+it didn't avoid it, just made it less severe. That suggests the center-
+offset penalty's *shape* isn't the actual bottleneck on pace; something
+else about how the residual correction handles full-track-width driving
+is the limiting factor. **Four structurally different levers have now
+failed to close the pace gap to Lucy's raw expert (8.94s)** -- how much
+the correction can act, which network initialization it starts from,
+what the reward optimizes for globally, and now a targeted cornering-
+specific reward shape. This is a strong, consistent pattern, not one
+unlucky axis. Recommending this line of investigation be concluded.
+
+**Next steps:**
+1. Recommending against further from-scratch experiments purely aimed at
+   beating Lucy's raw pace via training-side tuning.
+2. v2 and seed=12000 remain the two combined-approach checkpoints worth
+   keeping.
+3. If pace is still a priority, it likely needs a fundamentally
+   different approach outside this reward-tuning family, or accepting
+   that matching Lucy's raw pace requires giving up the safety balance
+   this whole effort was built around.
+4. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 (combined-approach) 15:05
+
+**Participants and contributions:** Charlotte (direction: "make it
+official" -- package the combined controller as a real, submission-ready
+artifact rather than leaving it as an experiment checkpoint), Claude Code
+(packaging, verification, documentation).
+
+**Question or objective:** Package the residual combined-approach
+checkpoint (`v2`, `2026-09-11_residual-expert-base-v2-seed8000`) the same
+way `race_faster.py` packages the SAC-only checkpoint: self-contained, no
+dependency outside `src/controllers/`, checkpoint trimmed to policy
+weights only.
+
+**What we investigated or changed:**
+- Added `src/controllers/combined_candidate.py`: inlines the same actor
+  network and 24-dim observation encoding `race_faster.py` uses, adds
+  `controllers.leaderboard_expert` as the base action every tick (a
+  sibling module within `src/controllers/`, not an external dependency),
+  and applies the SAC network's output as a bounded correction on top
+  (`_RESIDUAL_ACTION_SCALE = 0.3`, matching the checkpoint's trained
+  value). Faithfully reproduces the recovery-passthrough fix from
+  `training.controller` (checking `leaderboard_expert.Controller`'s
+  `_recovery_ticks_remaining` before/after calling it, suppressing the
+  correction entirely during the expert's stuck-recovery maneuver) --
+  this packaged version must replicate that exact composition, since the
+  checkpoint's weights were trained under it.
+- Trimmed the checkpoint to policy weights only
+  (`src/controllers/checkpoints/combined_candidate_policy.pt`, 414KB ->
+  85KB, dropping critics/optimizer state, same convention as
+  `race_faster_policy.pt`).
+- Verified bit-for-bit against the training-time reference
+  (`TrainableController(residual_base=True, residual_scale=0.3,
+  deterministic=True)` loading the untrimmed checkpoint) on 20 random
+  synthetic observations (`max abs diff = 0.0`) *and* specifically on
+  the recovery-passthrough branch (a stuck scenario), not just general
+  driving -- confirming the exact mechanism that fixed the earlier crash
+  is faithfully reproduced in the packaged version, not just the general
+  actor network.
+- Confirmed `scripts/export_student_controllers.py`'s dependency walker
+  correctly detects and would bundle `controllers.leaderboard_expert`
+  when packaging this module (same mechanism already validated for
+  `hybrid_controller.py`).
+- Verified in two real (non-synthetic) headless races (`racing h2h`,
+  seed 110): beats `crash_fast` (485.9m margin) and loses to
+  `leaderboard_expert` directly, both exactly consistent with every
+  other verification of this checkpoint this session.
+- Added 4 new unit tests (`tests/test_combined_candidate.py`): valid
+  command ranges, commits to forward progress on a clear track, exact
+  recovery-command passthrough, and `copy_for_car` gives the expert
+  independent per-car state. Ran the full suite (214 passed) and
+  `ruff`/`pyright` (clean).
+
+**Evidence:**
+- AI-agent assistance: Claude Code wrote the packaged module, trimmed
+  the checkpoint, wrote and ran the bit-for-bit and recovery-path
+  verification scripts, ran real headless races to confirm end-to-end
+  behavior, wrote and ran the new tests, and confirmed the export
+  tooling's dependency detection before treating packaging as complete.
+- Commits or code: `src/controllers/combined_candidate.py`,
+  `src/controllers/checkpoints/combined_candidate_policy.pt`,
+  `tests/test_combined_candidate.py`.
+- Leaderboard result: n/a -- packaged and verified, but **not** wired
+  into the Gradescope submission manifest and **not** uploaded. This is
+  a separate, explicit decision (which `controller_module` a real
+  submission zip names) that CLAUDE.md's packaging-a-submission section
+  reserves for direct instruction -- `controllers.race_faster` (the
+  pure-SAC checkpoint) remains whatever was last actually submitted.
+
+**Decision and rationale:** `controllers.combined_candidate` now exists
+as a real, tested, submission-shaped artifact -- the practical endpoint
+of this session's combined-approach work, verified to reproduce the
+exact validated training-time behavior (including the specific fix that
+resolved the one known crash) rather than just approximating it. Not
+promoted to replace `race_faster.py` as the actual graded submission
+without explicit direction, since that's a separate, higher-stakes
+decision than packaging.
+
+**Next steps:**
+1. Awaiting direction on whether to promote this to the actual
+   Gradescope "improved" submission slot (replacing the pure-SAC
+   `race_faster.py`), keep both available, or leave this as a
+   demonstrated-but-not-submitted artifact.
+2. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 16:10
+
+**Participants and contributions:** Charlotte Tsui (direction: whether to
+keep training `combined_candidate` to close the remaining pace gap to
+Lucy's expert, or conclude that line of work), Claude Code (surveyed the
+existing evidence, explained the combined-approach controllers, presented
+options, recorded the decision).
+
+**Question or objective:** Now that `controllers.combined_candidate` (the
+packaged v2 residual checkpoint) exists, should training continue in
+pursuit of closing its remaining pace gap to Lucy's raw expert (8.94s
+solo vs. v2's ~11.4s)?
+
+**What we investigated or changed:** No new training or code changes.
+Reviewed `docs/rl_design.md` §6's causal test 37 chain and the separate
+`experiments/2026-09-10_expert-opponent-seed8000/followup_finetune_sweep.md`
+to establish what had already been tried: widening/narrowing
+`RESIDUAL_ACTION_SCALE`, a 5-seed sweep, reward reweighting toward speed,
+curvature-aware reward shaping, and (separately) a 6-variant fine-tune-
+against-the-expert dose sweep in two resume modes — all documented
+failures at closing the pace gap specifically. Presented this history
+plus the one flagged-but-untried lever (a mixed-opponent training
+curriculum) and asked for direction rather than starting a fifth/seventh
+variation unprompted.
+
+**Evidence:**
+- Sources or documentation: `docs/rl_design.md` §6 (causal test 37 and
+  its five follow-ups), `experiments/2026-09-10_expert-opponent-
+  seed8000/followup_finetune_sweep.md`, `docs/lab_notebook.md`'s
+  2026-09-11 packaging entry.
+- AI-agent assistance: Claude Code read the design doc and experiment
+  notes (no code run), summarized the four-plus-six already-tried
+  variants, and asked which direction to take via a direct question
+  rather than assuming.
+- Commits or code: none this session.
+- Experiment output: none new; referenced existing results only.
+
+**What we observed:** The pace-gap question had already been tested from
+enough independent angles (scale, seed, reward weight, reward shape,
+fine-tuning dose, resume mode) that continuing to search the same family
+of levers was assessed as low-yield, per the existing notes' own
+recommendation to conclude this line.
+
+**Decision and rationale:** Stop pursuing the pace gap. `2026-09-11_
+residual-expert-base-v2-seed8000`, as packaged in
+`src/controllers/combined_candidate.py`, is adopted as the final result
+of the combined-approach work — not because it matches Lucy's raw pace,
+but because it already dominates plain SAC and the hybrid shield on
+every tracked metric, and four-plus-six independent attempts to close
+the remaining gap have failed cleanly enough to read as a structural
+trade-off (the RL reward balances speed against safety by design; the
+hand-written expert doesn't) rather than an unfound local optimum.
+Recorded the closing note in `docs/rl_design.md` §6 (end of the causal
+test 37 chain).
+
+**Next steps:**
+1. No further from-scratch or fine-tuning runs planned against this
+   specific goal.
+2. Still open, if priorities change later: the mixed-opponent curriculum
+   (untried) and the seed=12000 safety-focused alternative remain
+   documented options.
+3. Still open, separately: whether to promote `combined_candidate` to
+   the actual Gradescope submission slot in place of `race_faster.py`
+   (flagged in the 2026-09-11 entry, not decided here).
+4. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 17:05
+
+**Participants and contributions:** Charlotte Tsui (direction: reopen the
+pace-gap question closed earlier this session, specifically to raise the
+effective speed ceiling and accept more risk on purpose), Claude Code
+(implemented both levers as opt-in reward overrides, ran the training/eval
+runs, verified results, documented).
+
+**Question or objective:** Two specific, concrete levers for closing
+`combined_candidate`'s remaining pace gap to Lucy's raw expert (8.94s
+solo vs. v2's ~11.4-11.8s): raise the speed reward ceiling, and loosen a
+safety weight to deliberately accept more risk.
+
+**What we investigated or changed:**
+- Confirmed `MAX_REWARDED_SPEED_MPS` (the literal "speed ceiling" from
+  early in this track's history) no longer exists -- removed structurally
+  in causal test 17 (2026-09-02) and replaced by
+  `WALL_PROXIMITY_SPEED_SCALE_MPS`, a speed-scaled wall-proximity risk
+  price. Chose this as the closest surviving analog to "raise the speed
+  ceiling."
+- Added two opt-in overrides (both default to the unchanged module
+  constant, so plain self-play is unaffected): `wall_proximity_speed_scale_mps`
+  and `damage_weight`, threaded through `training.reward.step_reward`,
+  `training.controller.TrainableController`, and new
+  `scripts/train_sac.py` flags (`--wall-proximity-speed-scale`,
+  `--damage-weight`). Added corresponding unit tests in
+  `tests/test_training_reward.py`. Ran the full suite (216 passed) and
+  `ruff`/`pyright` (clean) before training anything.
+- Added a `--baseline leaderboard-expert` option to `scripts/eval_sac.py`
+  (previously only evaluated against the two standard baselines) so an
+  already-trained checkpoint can be re-evaluated against
+  `controllers.leaderboard_expert` as a live opponent without a bespoke
+  script -- the same stress test every causal test 37 follow-up has used.
+- Trained two checkpoints, each matched to
+  `2026-09-11_residual-expert-base-v2-seed8000`'s exact reference config
+  (seed=8000, races=40, round_seconds=120, residual mode) with exactly
+  one variable changed: `wall_proximity_speed_scale_mps=20.0` (2x
+  default) and `damage_weight=2.5` (half default). Evaluated both against
+  the standard baselines (train_sac.py's built-in eval) and against
+  `leaderboard_expert` directly (the new eval_sac.py option).
+
+**Evidence:**
+- Sources or documentation: `docs/rl_design.md` section 6 (causal test 17
+  for why the old speed cap is gone; causal test 37 and its five prior
+  follow-ups for what had already been tried).
+- AI-agent assistance: Claude Code wrote and tested the two reward
+  overrides and the eval_sac.py flag, ran both training runs
+  (~497s/~575,840 transitions/~143,750 gradient updates each, matching
+  v2's scale) and both post-training evaluations end to end, computed
+  aggregate stats from the raw `eval_results.json` output via a small
+  scratch script (not committed), and wrote this entry plus each
+  experiment's `notes.md` and the `docs/rl_design.md` update from the
+  actual numbers observed, not assumed.
+- Commits or code: `src/training/reward.py`, `src/training/controller.py`,
+  `scripts/train_sac.py`, `scripts/eval_sac.py`,
+  `tests/test_training_reward.py`.
+- Experiment output:
+  `experiments/2026-09-12_residual-wallscale20-seed8000/`,
+  `experiments/2026-09-12_residual-damageweight25-seed8000/` (each with
+  `config.yaml`, `train.log`, `eval_results.json`, a `vs_expert/`
+  subdirectory for the leaderboard_expert comparison, `checkpoints/`, and
+  `notes.md`).
+
+**What we observed:** Both variants trained cleanly and stably (normal
+critic-loss curves, 20/20 wins against the standard baselines, no
+elimination there) but neither closed the pace gap, and one regressed
+safety. wall-proximity-speed-scale=20: avg best lap time got slower in
+both matchups (11.37s -> 11.88s standard, 11.78s -> 13.37s vs. expert),
+avg damage worse, 0/10 eliminated vs. expert unchanged. damage-weight=2.5:
+also slower in both matchups (11.37s -> 11.66s standard, 11.78s -> 12.32s
+vs. expert) and, unlike every combined-approach checkpoint tested since
+the recovery-passthrough fix, reintroduced real eliminations against the
+expert (2/10, vs. v2's 0/10).
+
+**Decision and rationale:** Neither adopted. This is the fifth and sixth
+consecutive structurally different lever (after residual scale x2, a
+5-seed sweep, progress-weight reweight, and curvature-aware
+center-offset) to fail at closing this specific gap -- six for six across
+every category of lever this reward structure offers. Both new overrides
+are kept as tested, documented, opt-in parameters (defaults unchanged)
+rather than reverted code, per this track's convention of preserving
+negative results. `2026-09-11_residual-expert-base-v2-seed8000` /
+`src/controllers/combined_candidate.py` remains the final combined-approach
+result. Recorded in `docs/rl_design.md` section 6 as new causal test 37
+follow-ups, immediately after the entry documenting this line's earlier
+closure.
+
+**Next steps:**
+1. No further training-side attempts at this specific goal are planned;
+   six independent attempts is being treated as conclusive for this
+   reward-tuning family.
+2. Still open, if priorities change later: the mixed-opponent curriculum
+   (still untried and structurally different from every reward-tuning
+   variant attempted) and the seed=12000 safety-focused alternative.
+3. Still open, separately: whether to promote `combined_candidate` to
+   the actual Gradescope submission slot in place of `race_faster.py`.
+4. Still open: the `controllers.minimum_viable` module gap.
+
+## 2026-09-12 17:35
+
+**Participants and contributions:** Charlotte Tsui (direction: try the
+mixed-opponent curriculum, the one lever from the prior entry noted as
+still untried), Claude Code (implemented it, found and fixed a bug in the
+prior session's overrides along the way, ran the experiment, verified
+results, documented).
+
+**Question or objective:** Try the mixed-opponent training curriculum —
+alternating self-play and expert-opponent races within one run — as a
+structurally different mechanism (not another reward-weight tweak) for
+closing `combined_candidate`'s remaining pace gap to Lucy's raw expert.
+
+**What we investigated or changed:**
+- While threading through the change, found that `scripts/train_sac.py`'s
+  `--opponent self` incumbent construction was missing the
+  `wall_proximity_speed_scale_mps`/`damage_weight` overrides added last
+  session (only the challenger got them) — roughly half of the two prior
+  experiments' (`2026-09-12_residual-wallscale20-seed8000`,
+  `2026-09-12_residual-damageweight25-seed8000`) transitions were computed
+  under the wrong (default) weights. Fixed the bug and added caveat notes
+  to both experiments' `notes.md` and to `docs/rl_design.md` rather than
+  silently correcting the record.
+- Added `--opponent mixed` and `--mixed-opponent-expert-every` (default 2)
+  to `scripts/train_sac.py`: instead of one `run_headless_head_to_head`
+  call spanning all races, loops per-race, alternating the incumbent
+  between a fresh self-play copy and `controllers.leaderboard_expert`
+  directly, varying the per-race random seed so races aren't identical
+  repeats. Also extended the automatic post-training baseline eval to
+  include `leaderboard_expert` for `--opponent mixed`, mirroring how
+  `--opponent expert` already does this.
+- Smoke-tested on a tiny config (4 races, 8s rounds) before committing to
+  a full run — verified the expert/self race split and the eval baseline
+  inclusion worked as intended.
+- Ran the full experiment matched to
+  `2026-09-11_residual-expert-base-v2-seed8000`'s config otherwise
+  (seed=8000, races=40, round_seconds=120, residual mode,
+  mixed_opponent_expert_every=2), evaluated against both the standard
+  baselines and `leaderboard_expert` directly, and checked `metrics.csv`
+  for training stability.
+- Ran the full test suite (216 passed) and `ruff`/`pyright` (clean) before
+  and after the bug fix and the new feature.
+
+**Evidence:**
+- Sources or documentation: `experiments/2026-09-10_expert-opponent-
+  seed8000/followup_finetune_sweep.md`'s next-step note (where this idea
+  originated), `docs/rl_design.md` section 6's causal test 37 chain for
+  the six prior failed levers.
+- AI-agent assistance: Claude Code wrote and smoke-tested the new
+  `--opponent mixed` mechanism, found the pre-existing override-threading
+  bug via direct code inspection (not from a symptom), ran the full
+  training/eval run, inspected `metrics.csv` for critic-loss stability,
+  and wrote this entry, the `docs/rl_design.md` update, and
+  `experiments/2026-09-12_residual-mixedopponent-seed8000/notes.md` from
+  the actual observed numbers.
+- Commits or code: `scripts/train_sac.py`.
+- Experiment output:
+  `experiments/2026-09-12_residual-mixedopponent-seed8000/` (`config.yaml`,
+  `train.log`, `eval_results.json`, `checkpoints/`, `notes.md`).
+
+**What we observed:** Trained faster in wall-clock terms (344.8s vs.
+v2's 497.1s) and collected fewer transitions (415,906 vs. 575,840) — as
+expected, since expert-opponent races only have one learning copy. But
+this was the worst combined-approach result observed on this track: avg
+best lap time got slower in both matchups (11.37s -> 12.60s standard,
+11.78s -> 12.69s vs. expert), and — for the first time in any residual
+checkpoint since the recovery-passthrough fix — eliminations reappeared
+on the standard baselines (1/20) as well as against the expert (2/10).
+Off-track/wall-contact time exploded even against the easy baselines,
+indicating a broad competence regression, not a targeted expert-matchup
+effect. `metrics.csv` showed real training instability (critic loss
+peaked at 290.8, well above this track's normal range for a converged
+residual run).
+
+**Decision and rationale:** Not adopted. This is the seventh
+structurally different lever — and the first full mechanism change rather
+than a reward-weight tweak — to fail at closing the pace gap, producing a
+worse result than any of the six reward-tuning attempts before it.
+`--opponent mixed` is kept as a tested, documented, opt-in flag (default
+`self`, existing behavior unaffected). `2026-09-11_residual-expert-base-
+v2-seed8000` / `src/controllers/combined_candidate.py` remains the final
+combined-approach result. Recorded in `docs/rl_design.md` section 6 as a
+new causal test 37 follow-up, with the line re-closed after it.
+
+**Next steps:**
+1. No further attempts at closing this specific pace gap are planned —
+   seven independent, structurally different attempts (six reward-tuning
+   levers plus this mechanism change) is being treated as conclusive.
+2. Still open, if priorities change later: a lower expert-exposure ratio
+   for the mixed curriculum (untried, lower-conviction after this result)
+   and the seed=12000 safety-focused alternative.
+3. Still open, separately: whether to promote `combined_candidate` to
+   the actual Gradescope submission slot in place of `race_faster.py`.
+4. Still open: the `controllers.minimum_viable` module gap.

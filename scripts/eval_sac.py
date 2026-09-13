@@ -18,7 +18,10 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from training.evaluation import evaluate_against_baselines
+from controllers.leaderboard_expert import create_controller as create_expert_controller
+from racing.student.api import RobotController
+from training.controller import RESIDUAL_ACTION_SCALE
+from training.evaluation import BASELINE_CONTROLLERS, evaluate_against_baselines
 from training.observation import OBSERVATION_DIM
 from training.sac import SACAgent
 
@@ -34,6 +37,9 @@ class EvalSacArguments:
     eval_seeds: tuple[int, ...]
     eval_races: int
     eval_round_seconds: float
+    residual_expert_base: bool
+    residual_action_scale: float
+    baseline: str
     experiment_dir: Path
 
 
@@ -44,6 +50,35 @@ def parse_args() -> EvalSacArguments:
     parser.add_argument("--eval-seeds", type=int, nargs="+", default=list(DEFAULT_EVAL_SEEDS))
     parser.add_argument("--eval-races", type=int, default=2, help="head-to-head races per evaluation seed")
     parser.add_argument("--eval-round-seconds", type=float, default=20.0)
+    parser.add_argument(
+        "--residual-expert-base",
+        action="store_true",
+        help=(
+            "pass this if the checkpoint was trained with train_sac.py's --residual-expert-base -- "
+            "its output is a correction on top of controllers.leaderboard_expert, not an absolute "
+            "command, and evaluating without this flag would silently misread it as one"
+        ),
+    )
+    parser.add_argument(
+        "--residual-action-scale",
+        type=float,
+        default=RESIDUAL_ACTION_SCALE,
+        help="must match the value passed to train_sac.py's --residual-action-scale when this checkpoint was trained",
+    )
+    parser.add_argument(
+        "--baseline",
+        choices=("standard", "leaderboard-expert"),
+        default="standard",
+        help=(
+            "'standard' (default): evaluate against training.evaluation.BASELINE_CONTROLLERS "
+            "(crash_fast, default_student_controller). 'leaderboard-expert': evaluate against "
+            "controllers.leaderboard_expert.Controller as a live opponent instead -- the same "
+            "stress test used throughout docs/rl_design.md section 6's causal test 37 chain, "
+            "since a checkpoint's own base action already comes from that same expert in "
+            "residual mode and this is the matchup that surfaces discontinuity/recovery bugs "
+            "the standard baselines don't."
+        ),
+    )
     parser.add_argument("--experiment-dir", type=Path, required=True, help="output directory under experiments/")
     arguments = parser.parse_args()
     return EvalSacArguments(
@@ -52,6 +87,9 @@ def parse_args() -> EvalSacArguments:
         eval_seeds=tuple(arguments.eval_seeds),
         eval_races=arguments.eval_races,
         eval_round_seconds=arguments.eval_round_seconds,
+        residual_expert_base=arguments.residual_expert_base,
+        residual_action_scale=arguments.residual_action_scale,
+        baseline=arguments.baseline,
         experiment_dir=arguments.experiment_dir,
     )
 
@@ -64,8 +102,17 @@ def main() -> None:
     agent = SACAgent(observation_dim=OBSERVATION_DIM, action_dim=ACTION_DIM, hidden_sizes=(args.hidden_size,) * 2)
     agent.load(args.checkpoint)
 
+    baselines: dict[str, RobotController] | None = BASELINE_CONTROLLERS
+    if args.baseline == "leaderboard-expert":
+        baselines = {"leaderboard_expert": create_expert_controller()}
     eval_results = evaluate_against_baselines(
-        agent, eval_seeds=args.eval_seeds, eval_races=args.eval_races, eval_round_seconds=args.eval_round_seconds
+        agent,
+        eval_seeds=args.eval_seeds,
+        eval_races=args.eval_races,
+        eval_round_seconds=args.eval_round_seconds,
+        baselines=baselines,
+        residual_base=args.residual_expert_base,
+        residual_scale=args.residual_action_scale,
     )
 
     (experiment_dir / "config.yaml").write_text(
@@ -74,6 +121,7 @@ def main() -> None:
         f"eval_seeds: {args.eval_seeds}\n"
         f"eval_races: {args.eval_races}\n"
         f"eval_round_seconds: {args.eval_round_seconds}\n"
+        f"baseline: {args.baseline}\n"
     )
     (experiment_dir / "eval_results.json").write_text(json.dumps(eval_results, indent=2))
     print(f"\n[done] evidence written to {experiment_dir}")

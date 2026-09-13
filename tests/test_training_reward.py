@@ -17,6 +17,9 @@ from training.reward import (
     ROBOT_WARNING_ANGLE_DEGREES,
     ROBOT_WARNING_DISTANCE_M,
     WALL_PROXIMITY_SPEED_SCALE_MPS,
+    WEIGHT_DAMAGE,
+    WEIGHT_EXPERT_MATCH,
+    WEIGHT_PROGRESS,
     YAW_RATE_CHANGE_SCALE_DEGREES_PER_S,
     YAW_RATE_REVERSAL_THRESHOLD_DEGREES_PER_S,
     is_new_episode,
@@ -36,6 +39,49 @@ def test_step_reward_rewards_forward_progress_aligned_with_track_heading() -> No
     reward = step_reward(previous, moving_straight)
 
     assert reward > 0.0
+
+
+def test_step_reward_progress_weight_overrides_the_default() -> None:
+    previous = RobotSensors(dt_s=1 / 60)
+    moving_straight = RobotSensors(
+        dt_s=1 / 60,
+        odometry=OdometrySensors(speed_mps=5.0),
+        camera=CameraSensors(heading_error_degrees=0.0),
+    )
+
+    default_reward = step_reward(previous, moving_straight)
+    doubled_reward = step_reward(previous, moving_straight, progress_weight=WEIGHT_PROGRESS * 2.0)
+
+    # Only the progress term scales -- the difference is exactly one extra progress term's worth.
+    forward_progress_m = moving_straight.odometry.speed_mps * moving_straight.dt_s
+    assert doubled_reward == pytest.approx(default_reward + WEIGHT_PROGRESS * forward_progress_m, abs=1e-6)
+
+
+def test_step_reward_damage_weight_overrides_the_default() -> None:
+    previous = RobotSensors(contact=ContactSensors(damage=0.1))
+    damaged_next = RobotSensors(contact=ContactSensors(damage=0.5))
+
+    default_reward = step_reward(previous, damaged_next)
+    halved_reward = step_reward(previous, damaged_next, damage_weight=WEIGHT_DAMAGE / 2.0)
+
+    # Only the damage term scales -- the difference is exactly half of one damage term.
+    damage_delta = damaged_next.contact.damage - previous.contact.damage
+    assert halved_reward == pytest.approx(default_reward + (WEIGHT_DAMAGE / 2.0) * damage_delta, abs=1e-6)
+
+
+def test_step_reward_wall_proximity_speed_scale_overrides_the_default() -> None:
+    previous = RobotSensors()
+    close_wall = LidarSensors(distances_m=tuple(1.0 for _ in range(7)))
+    fast_open = RobotSensors(odometry=OdometrySensors(speed_mps=30.0))
+    fast_near_wall = RobotSensors(odometry=OdometrySensors(speed_mps=30.0), wall_lidar=close_wall)
+
+    default_wall_cost = step_reward(previous, fast_open) - step_reward(previous, fast_near_wall)
+    loosened_wall_cost = step_reward(
+        previous, fast_open, wall_proximity_speed_scale_mps=WALL_PROXIMITY_SPEED_SCALE_MPS * 10.0
+    ) - step_reward(previous, fast_near_wall, wall_proximity_speed_scale_mps=WALL_PROXIMITY_SPEED_SCALE_MPS * 10.0)
+
+    # A much larger scale tolerates more speed before pricing it as risky -- less wall-proximity cost at the same speed.
+    assert loosened_wall_cost < default_wall_cost
 
 
 def test_step_reward_penalizes_reverse_driving() -> None:
@@ -61,6 +107,38 @@ def test_step_reward_penalizes_center_offset() -> None:
     off_center = RobotSensors(camera=CameraSensors(center_offset_m=4.0))
 
     assert step_reward(previous, off_center) < step_reward(previous, centered)
+
+
+def test_curvature_aware_center_offset_is_off_by_default() -> None:
+    previous = RobotSensors()
+    straight_ahead = RobotSensors(camera=CameraSensors(center_offset_m=4.0, lookahead_offsets_m=(0.0, 0.0, 0.0)))
+
+    assert step_reward(previous, straight_ahead) == step_reward(
+        previous, straight_ahead, curvature_aware_center_offset=False
+    )
+
+
+def test_curvature_aware_center_offset_reduces_the_penalty_on_a_straight() -> None:
+    previous = RobotSensors()
+    # Flat lookahead offsets (near == middle == far) -- bend_score is 0.0, a straight.
+    on_a_straight = RobotSensors(camera=CameraSensors(center_offset_m=4.0, lookahead_offsets_m=(2.0, 2.0, 2.0)))
+
+    uniform_penalty = step_reward(previous, on_a_straight)
+    curvature_aware_penalty = step_reward(previous, on_a_straight, curvature_aware_center_offset=True)
+
+    assert curvature_aware_penalty > uniform_penalty  # less negative -- a smaller penalty
+
+
+def test_curvature_aware_center_offset_keeps_full_strength_in_a_sharp_corner() -> None:
+    previous = RobotSensors()
+    # near=0, middle=2, far=5 -- bend_score = |5-0| + 0.45*|2-0| = 5.9, well above the
+    # CENTER_OFFSET_CURVATURE_REFERENCE_M=3.0 threshold where the scale saturates at 1.0.
+    sharp_corner = RobotSensors(camera=CameraSensors(center_offset_m=4.0, lookahead_offsets_m=(0.0, 2.0, 5.0)))
+
+    uniform_penalty = step_reward(previous, sharp_corner)
+    curvature_aware_penalty = step_reward(previous, sharp_corner, curvature_aware_center_offset=True)
+
+    assert curvature_aware_penalty == pytest.approx(uniform_penalty)
 
 
 def test_step_reward_penalizes_close_walls() -> None:
@@ -212,6 +290,58 @@ def test_step_reward_steering_reversal_penalty_is_currently_disabled() -> None:
     )
 
     assert step_reward(turning_left, turning_right) == step_reward(turning_left, turning_left)
+
+
+def test_expert_match_penalty_is_zero_when_either_action_is_missing() -> None:
+    # `previous_action`/`expert_action` default to None (e.g. a controller's first tick,
+    # or expert_match=False) -- the mechanism must be a strict no-op in that case.
+    previous_hazard = RobotSensors(wall_lidar=LidarSensors(distances_m=tuple(1.0 for _ in range(7))))
+    current = RobotSensors()
+
+    baseline = step_reward(previous_hazard, current)
+
+    assert step_reward(previous_hazard, current, previous_action=(1.0, 1.0)) == baseline
+    assert step_reward(previous_hazard, current, expert_action=(-1.0, -1.0)) == baseline
+
+
+def test_expert_match_penalty_only_applies_in_a_hazard_state() -> None:
+    previous_open = RobotSensors()  # default wall_lidar/no competitors -- not hazardous
+    previous_hazard = RobotSensors(wall_lidar=LidarSensors(distances_m=tuple(1.0 for _ in range(7))))
+    current = RobotSensors()
+    mismatched_action, mismatched_expert_action = (1.0, 1.0), (-1.0, -1.0)
+
+    assert step_reward(
+        previous_open, current, previous_action=mismatched_action, expert_action=mismatched_expert_action
+    ) == step_reward(previous_open, current)
+    assert step_reward(
+        previous_hazard, current, previous_action=mismatched_action, expert_action=mismatched_expert_action
+    ) < step_reward(previous_hazard, current)
+
+
+def test_expert_match_penalty_is_zero_when_actions_already_match() -> None:
+    previous_hazard = RobotSensors(wall_lidar=LidarSensors(distances_m=tuple(1.0 for _ in range(7))))
+    current = RobotSensors()
+    matching = (0.5, -0.3)
+
+    with_match = step_reward(previous_hazard, current, previous_action=matching, expert_action=matching)
+
+    assert with_match == pytest.approx(step_reward(previous_hazard, current))
+
+
+def test_expert_match_penalty_scales_with_action_distance() -> None:
+    previous_hazard = RobotSensors(wall_lidar=LidarSensors(distances_m=tuple(1.0 for _ in range(7))))
+    current = RobotSensors()
+
+    small_mismatch = step_reward(previous_hazard, current, previous_action=(0.0, 0.0), expert_action=(0.1, 0.0))
+    large_mismatch = step_reward(previous_hazard, current, previous_action=(0.0, 0.0), expert_action=(1.0, 0.0))
+
+    assert large_mismatch < small_mismatch
+
+
+def test_expert_match_weight_is_currently_enabled() -> None:
+    # Unlike several other terms in this file, WEIGHT_EXPERT_MATCH hasn't yet been
+    # tested and disabled after a regression -- guard against silently zeroing it.
+    assert WEIGHT_EXPERT_MATCH > 0.0
 
 
 def test_is_terminal_true_at_and_above_near_elimination_threshold() -> None:
