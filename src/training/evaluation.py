@@ -23,7 +23,7 @@ import numpy as np
 from controllers.crash_fast import control as crash_fast_control
 from racing.race.head_to_head import HeadToHeadResult, HeadToHeadRole, run_headless_head_to_head
 from racing.student.api import RobotController, default_student_controller
-from training.controller import RESIDUAL_ACTION_SCALE, TrainableController, TrainingState
+from training.controller import DEFAULT_RESIDUAL_BASE_SOURCE, RESIDUAL_ACTION_SCALE, TrainableController, TrainingState
 from training.observation import OBSERVATION_DIM
 from training.replay_buffer import ReplayBuffer
 from training.sac import SACAgent
@@ -51,6 +51,8 @@ def evaluate_against_baselines(
     deterministic: bool = True,
     residual_base: bool = False,
     residual_scale: float = RESIDUAL_ACTION_SCALE,
+    residual_base_source: str = DEFAULT_RESIDUAL_BASE_SOURCE,
+    residual_hazard_gated: bool = False,
 ) -> list[dict[str, object]]:
     """Run the frozen policy in `agent` against every baseline, across every seed.
 
@@ -64,9 +66,10 @@ def evaluate_against_baselines(
 
     Pass ``residual_base=True`` if `agent` was trained with
     `TrainableController`'s ``residual_base`` mode -- its output is a
-    correction on top of `controllers.leaderboard_expert`, not an absolute
-    command, and evaluating it without this flag would silently treat that
-    correction as the whole action.
+    correction on top of a base controller, not an absolute command, and
+    evaluating it without this flag would silently treat that correction
+    as the whole action. Pass ``residual_base_source`` to match whichever
+    base ("expert" or "clone") the checkpoint was actually trained against.
     """
     resolved_baselines = BASELINE_CONTROLLERS if baselines is None else baselines
     # `rng` is only consulted by the stochastic (deterministic=False) path here
@@ -86,6 +89,8 @@ def evaluate_against_baselines(
                 deterministic=deterministic,
                 residual_base=residual_base,
                 residual_scale=residual_scale,
+                residual_base_source=residual_base_source,
+                residual_hazard_gated=residual_hazard_gated,
             )
             result = run_headless_head_to_head(
                 challenger_controller=trained_controller,

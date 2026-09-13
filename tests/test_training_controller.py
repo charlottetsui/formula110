@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from controllers import leaderboard_expert
-from racing.student.api import CameraSensors, ContactSensors, OdometrySensors, RobotCommand, RobotSensors
+from racing.student.api import CameraSensors, ContactSensors, LidarSensors, OdometrySensors, RobotCommand, RobotSensors
 from training.controller import RESIDUAL_ACTION_SCALE, TrainableController, TrainingState
 from training.observation import OBSERVATION_DIM, encode_observation
 from training.replay_buffer import ReplayBuffer
@@ -311,6 +311,71 @@ def test_residual_base_pushes_the_raw_policy_action_not_the_blended_command() ->
     expected_raw_action = state.agent.act(encode_observation(first_sensors), deterministic=True)
 
     assert pushed_action == pytest.approx(expected_raw_action)
+
+
+def test_residual_hazard_gated_requires_residual_base() -> None:
+    state = _training_state()
+
+    with pytest.raises(ValueError, match="residual_hazard_gated requires residual_base"):
+        TrainableController(state=state, training=True, residual_hazard_gated=True)
+
+
+def test_residual_hazard_gated_passes_through_the_base_command_unmodified_outside_hazard() -> None:
+    state = _training_state()
+    controller = TrainableController(
+        state=state, training=False, deterministic=True, residual_base=True, residual_hazard_gated=True
+    )
+    open_track = _sensors(tick=5)
+
+    command = controller(open_track)
+
+    expert_command = leaderboard_expert.create_controller()(open_track)
+    assert command.throttle == expert_command.throttle
+    assert command.steer == expert_command.steer
+
+
+def test_residual_hazard_gated_applies_the_correction_during_a_hazard() -> None:
+    state = _training_state()
+    controller = TrainableController(
+        state=state, training=False, deterministic=True, residual_base=True, residual_hazard_gated=True
+    )
+    close_wall = LidarSensors(distances_m=tuple(1.0 for _ in range(7)))
+    hazard = RobotSensors(tick=5, wall_lidar=close_wall)
+
+    command = controller(hazard)
+
+    expert_command = leaderboard_expert.create_controller()(hazard)
+    # Some correction was actually applied -- unlike the non-hazard case, the command must not
+    # simply equal the base controller's own, or hazard-gating would be indistinguishable from
+    # never applying a correction at all.
+    assert (command.throttle, command.steer) != (expert_command.throttle, expert_command.steer)
+
+
+def test_residual_hazard_gated_pushes_zero_action_when_gated_off() -> None:
+    state = _training_state(warmup_steps=0)
+    controller = TrainableController(
+        state=state, training=True, deterministic=True, residual_base=True, residual_hazard_gated=True
+    )
+    controller(_sensors(tick=0))  # an open-track (non-hazard) tick
+    controller(_sensors(tick=1))
+
+    pushed_action = state.buffer.sample(1, rng=np.random.default_rng(0)).actions[0]
+
+    # The correction had no physical effect on tick 0's command, so the buffer must record that
+    # zero action, not whatever the (untrained, essentially random) network actually output.
+    assert pushed_action == pytest.approx(np.zeros(2, dtype=np.float32))
+
+
+def test_copy_for_car_propagates_residual_hazard_gated_without_error() -> None:
+    state = _training_state()
+    original = TrainableController(state=state, training=True, residual_base=True, residual_hazard_gated=True)
+    original(_sensors(tick=0))
+
+    copy = original.copy_for_car()
+    for tick in range(3):
+        command = copy(_sensors(tick=tick))
+        assert -1.0 <= command.throttle <= 1.0
+        assert -1.0 <= command.steer <= 1.0
 
 
 def test_copy_for_car_propagates_residual_base_without_error() -> None:

@@ -1,39 +1,82 @@
-"""Submission-ready combined-approach controller (SAC + expert, residual composition).
+"""Submission-ready combined-approach controller (SAC + imitation clone, residual composition).
 
 The literal combined controller, packaged for submission the same way
 `race_faster.py` packages the SAC-only checkpoint: self-contained, no
 dependency outside `src/controllers/` (the only exception being
-`controllers.leaderboard_expert`, a sibling module within this same
-package -- `scripts/export_student_controllers.py`'s dependency walker
-follows and bundles it automatically, the same way it already does for
+`controllers.imitation`, a sibling module within this same package --
+`scripts/export_student_controllers.py`'s dependency walker follows and
+bundles it automatically, the same way it already does for
 `hybrid_controller.py`).
 
-Every tick, `controllers.leaderboard_expert.Controller` (Lucy's hand-written
-expert, from the separate imitation-learning track) supplies the base
-`(throttle, steer)` action, and a trained SAC network adds a bounded
-correction on top -- "residual reinforcement learning," see
-`training.controller`'s `residual_base` mode and docs/rl_design.md section 6
-(causal test 37) for the design and the training-time evidence. Neither
-half alone produces the output.
+Every tick, `controllers.imitation.Controller` (Lucy's behavioral clone,
+trained via imitation learning on `controllers.leaderboard_expert`'s
+trajectories -- the finished, trained artifact of the separate
+imitation-learning track) supplies the base `(throttle, steer)` action.
+On top of it, a trained SAC network adds a bounded correction -- but
+*only* on ticks judged a wall- or competitor-proximity hazard by the same
+proximity check `training.reward.in_hazard` uses (duplicated inline below,
+`_in_hazard`, for this module's own no-training-dependency rule); every
+other tick, the clone's command passes through completely unmodified.
+"Hazard-gated residual reinforcement learning" -- see
+`training.controller`'s `residual_base`/`residual_hazard_gated` modes
+(`residual_base_source="clone"`) and docs/rl_design.md section 6 (causal
+test 37, and its 2026-09-13 clone-base follow-ups) for the design and the
+training-time evidence.
 
-Loads the checkpoint from causal test 37's `v2`
-(`experiments/2026-09-11_residual-expert-base-v2-seed8000/checkpoints/
+Deliberately built on the clone rather than `leaderboard_expert.Controller`
+itself (the hand-written rule-based controller the clone was trained to
+imitate, and what every earlier checkpoint on this track used) so the
+submitted controller visibly combines this track's own trained model with
+the imitation-learning track's own trained model -- two learned artifacts,
+not one learned and one hand-coded.
+
+That choice has a real, measured cost, not just an upside -- worth stating
+plainly rather than only citing the win. `controllers.imitation.Controller`
+run completely alone is already excellent: 0/10 eliminated and a 6/10 win
+rate against `leaderboard_expert` itself, an 8.8-8.9s average best lap
+(`experiments/2026-09-13_clone-alone-baseline/`). Its one real weakness is
+2/10 eliminations against `default_student_controller` specifically. Three
+designs were tried against that weakness, in order:
+
+1. A uniform per-tick correction at three scales (0.1/0.3/0.5) --
+   `experiments/2026-09-13_residual-clone-base-seed8000/` and its
+   `-scale010-`/`-scale050-` siblings. Scale 0.3 fixed the
+   `default_student_controller` eliminations (0/10) but cost ~45% of the
+   clone's pace everywhere (best lap 8.77s -> 12.77s) and introduced a
+   *worse* elimination rate against `leaderboard_expert` (0/10 -> 2/10)
+   that the raw clone never had. A strictly worse trade than doing nothing.
+2. Hazard-gating that same correction (scale 0.3) so it only fires on
+   proximity-hazard ticks -- `experiments/2026-09-13_residual-clone-
+   hazard-gated-seed8000/`, this checkpoint. Pareto-better than (1) on
+   every single metric tested: `default_student_controller` eliminations
+   2/10 -> 1/10 (a real, if partial, fix) at a much smaller pace cost
+   (8.77s -> 10.33s, not 12.77s), and the new `leaderboard_expert`
+   weakness shrank from 2/10 -> 1/10 eliminated instead of growing.
+3. Widening the gated correction further (scale 0.6,
+   `experiments/2026-09-13_residual-clone-hazard-gated-scale06-seed8000/`)
+   made things worse across the board -- `default_student_controller`
+   eliminations rose to 3/10 and a new 1/10 elimination against
+   `crash_fast` appeared, which neither the clone alone nor either 0.3
+   variant ever had. Larger corrections during a hazard evidently
+   destabilize more often than they help; not pursued further.
+
+Honest bottom line: this checkpoint measurably improves the clone's one
+identified weakness (`default_student_controller`: 2/10 -> 1/10
+eliminated) at a real pace cost (8.77s -> 10.33s best lap) and a smaller
+new weakness against `leaderboard_expert` (0/10 -> 1/10 eliminated, and
+its lucky 6/10 win rate there drops to 0/10). It is not a strict,
+unconditional win over running the clone alone -- it is the best
+combined-approach trade found so far between the clone's one flaw and
+introducing new ones, not a checkpoint claimed to dominate the clone on
+every axis.
+
+Loads the checkpoint from run (2) above
+(`experiments/2026-09-13_residual-clone-hazard-gated-seed8000/checkpoints/
 policy_final.pt`, policy weights only, trimmed 414KB -> 85KB, dropping
-critics/optimizer state): 0/20 eliminations on the standard baselines,
-0/10 against `leaderboard_expert` directly, ~11.4s avg lap time (vs.
-plain SAC's ~15.5s -- roughly 27% faster) across every evaluation run to
-date. A safety-focused alternative checkpoint
-(`2026-09-12_residual-seedsweep-12000`, an order of magnitude lower
-damage and the first checkpoint on this track to beat the expert
-outright in a race, at a small pace cost) exists but is not packaged here
--- see that experiment's notes.md if prioritizing safety margin over pace.
-
-Four further attempts to close the remaining pace gap to the expert's own
-raw, safety-unconstrained pace (8.94s solo) -- widening/narrowing the
-correction's scale, a 5-seed initialization sweep, reweighting the reward
-toward speed, and a cornering-specific reward shape -- all failed cleanly
-(docs/rl_design.md section 6, causal test 37 and its follow-ups); this
-checkpoint represents the practical best found, not an unfinished search.
+critics/optimizer state, same convention as every prior checkpoint on this
+track) -- a from-scratch run at the reference config (seed=8000, races=40,
+round_seconds=120, n_step=3, hidden_size=128), not yet seed-swept the way
+the expert-base lineage was across causal test 37's many follow-ups.
 
 Always acts deterministically (the policy mean, not a sampled action),
 same convention as `race_faster.py` -- this is inference, not training.
@@ -48,7 +91,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 
-from controllers.leaderboard_expert import create_controller as create_expert_controller
+from controllers.imitation import create_controller as create_clone_controller
 from racing import RobotCommand, RobotSensors
 
 RACING_NAME = "Combined Candidate"
@@ -62,6 +105,14 @@ _LOG_STD_MAX = 2.0
 # Matches training.controller.RESIDUAL_ACTION_SCALE, the value this checkpoint was
 # trained with -- must stay in lockstep with the checkpoint, not independently tunable.
 _RESIDUAL_ACTION_SCALE = 0.3
+
+# Matches training.reward's WALL_WARNING_DISTANCE_M/WALL_WARNING_BEAM_ANGLES_DEGREES and
+# ROBOT_WARNING_DISTANCE_M/ROBOT_WARNING_ANGLE_DEGREES -- the exact hazard definition this
+# checkpoint's residual_hazard_gated training used to decide which ticks to correct.
+_WALL_WARNING_DISTANCE_M = 6.0
+_WALL_WARNING_BEAM_ANGLES_DEGREES: tuple[float, ...] = (-20.0, 0.0, 20.0)
+_ROBOT_WARNING_DISTANCE_M = 8.0
+_ROBOT_WARNING_ANGLE_DEGREES = 45.0
 
 _MAX_SPEED_MPS = 20.0
 _WALL_LIDAR_CAP_M = 20.0
@@ -144,6 +195,41 @@ def _clamp_unit(value: float) -> float:
     return max(-1.0, min(1.0, value))
 
 
+def _proximity_ratio(distance_m: float, *, warning_distance_m: float) -> float:
+    if not math.isfinite(distance_m) or distance_m >= warning_distance_m:
+        return 0.0
+    return (warning_distance_m - max(0.0, distance_m)) / warning_distance_m
+
+
+def _in_hazard(sensors: RobotSensors) -> bool:
+    """Mirrors `training.reward.in_hazard` exactly; duplicated for the no-dependency rule.
+
+    True on a wall- or competitor-proximity hazard tick -- the SAC correction applies only
+    then; every other tick, `controllers.imitation.Controller`'s command passes through
+    unmodified, matching the `residual_hazard_gated` mode this checkpoint was trained with.
+    """
+    wall_hazard = any(
+        _proximity_ratio(
+            sensors.wall_lidar.distance_at_angle_degrees(angle_degrees), warning_distance_m=_WALL_WARNING_DISTANCE_M
+        )
+        > 0.0
+        for angle_degrees in _WALL_WARNING_BEAM_ANGLES_DEGREES
+    )
+    ahead_competitors = [
+        competitor
+        for competitor in sensors.camera.competitors
+        if abs(competitor.angle_degrees) <= _ROBOT_WARNING_ANGLE_DEGREES
+    ]
+    robot_hazard = bool(ahead_competitors) and (
+        _proximity_ratio(
+            min(competitor.distance_m for competitor in ahead_competitors),
+            warning_distance_m=_ROBOT_WARNING_DISTANCE_M,
+        )
+        > 0.0
+    )
+    return wall_hazard or robot_hazard
+
+
 class _GaussianPolicyHead(nn.Module):
     """Inference-only tanh-Gaussian policy: mirrors `training.sac.GaussianPolicy`.
 
@@ -175,15 +261,12 @@ class _GaussianPolicyHead(nn.Module):
 
 
 class Controller:
-    """Every tick: `leaderboard_expert`'s command, plus a bounded SAC correction on top.
+    """The imitation clone's command, plus a bounded SAC correction on hazard ticks only.
 
-    During the expert's own stuck-recovery maneuver (a fixed reverse + hard
-    steer for a set number of ticks), the correction is suppressed entirely
-    and the expert's command passes through unmodified -- diluting a
-    deliberate escape maneuver with an unrelated correction was diagnosed as
-    a real crash cause during training (docs/rl_design.md section 6, causal
-    test 37) and fixed there; this packaged version must replicate that
-    exact composition, since the checkpoint's weights were trained under it.
+    On an ordinary tick (no wall/competitor proximity hazard, per `_in_hazard`), the clone's
+    command passes through completely unmodified -- preserving its already-strong solo pace.
+    On a hazard tick, a bounded correction is added on top, same composition as
+    `training.controller`'s `residual_hazard_gated` mode this checkpoint was trained under.
     """
 
     def __init__(self) -> None:
@@ -194,19 +277,19 @@ class Controller:
         self._policy.load_state_dict(payload["policy"])
         self._policy.to("cpu")
         self._policy.eval()
-        self._expert = create_expert_controller()
+        self._clone = create_clone_controller()
 
     def __call__(self, sensors: RobotSensors) -> RobotCommand:
+        # Always called, every tick, regardless of hazard status -- the clone is stateful
+        # (an observation-history window), and must see every tick to stay consistent.
+        base_command = self._clone(sensors)
+        if not _in_hazard(sensors):
+            return base_command
+
         observation = _encode_observation(sensors)
         with torch.inference_mode():
             observation_tensor = torch.as_tensor(observation, dtype=torch.float32).unsqueeze(0)
             correction = self._policy.deterministic_action(observation_tensor).squeeze(0).numpy()
-
-        recovery_before = getattr(self._expert, "_recovery_ticks_remaining", 0)
-        base_command = self._expert(sensors)
-        recovery_after = getattr(self._expert, "_recovery_ticks_remaining", 0)
-        if recovery_before > 0 or recovery_after > 0:
-            return base_command
 
         return RobotCommand(
             throttle=_clamp_unit(base_command.throttle + _RESIDUAL_ACTION_SCALE * float(correction[0])),
@@ -214,8 +297,8 @@ class Controller:
         )
 
     def copy_for_car(self) -> Controller:
-        # A fresh instance per car/race -- the expert's recovery timer and previous-steer
-        # state must not be shared across cars sharing a race (mirrors hybrid_controller.py).
+        # A fresh instance per car/race -- the clone's own previous-command/history state must
+        # not be shared across cars sharing a race (mirrors hybrid_controller.py).
         return Controller()
 
 

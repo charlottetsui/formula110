@@ -27,9 +27,11 @@ from racing.race.head_to_head import run_headless_head_to_head
 from training.controller import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_N_STEP,
+    DEFAULT_RESIDUAL_BASE_SOURCE,
     DEFAULT_UPDATE_EVERY_N_STEPS,
     DEFAULT_WARMUP_STEPS,
     RESIDUAL_ACTION_SCALE,
+    RESIDUAL_BASE_SOURCES,
     TrainableController,
     TrainingState,
 )
@@ -63,6 +65,8 @@ class TrainSacArguments:
     expert_match_bonus: bool
     residual_expert_base: bool
     residual_action_scale: float
+    residual_base_source: str
+    residual_hazard_gated: bool
     progress_weight: float
     curvature_aware_center_offset: bool
     wall_proximity_speed_scale_mps: float
@@ -175,6 +179,30 @@ def parse_args() -> TrainSacArguments:
         ),
     )
     parser.add_argument(
+        "--residual-base-source",
+        choices=RESIDUAL_BASE_SOURCES,
+        default=DEFAULT_RESIDUAL_BASE_SOURCE,
+        help=(
+            "with --residual-expert-base, which controller supplies the base command: 'expert' "
+            "(default, controllers.leaderboard_expert -- exact, hand-written) or 'clone' "
+            "(controllers.imitation -- the behavioral clone trained on the expert's trajectories, "
+            "an approximation with its own clone error). Must match the checkpoint's value when "
+            "re-evaluating."
+        ),
+    )
+    parser.add_argument(
+        "--residual-hazard-gated",
+        action="store_true",
+        help=(
+            "with --residual-expert-base, apply the correction only on ticks training.reward"
+            ".in_hazard judges a wall/robot-proximity hazard -- every other tick, the base "
+            "command passes through completely unmodified. Built for --residual-base-source "
+            "clone, where a uniform correction was found to cost pace everywhere for a fix "
+            "only needed in rare proximity moments. Must match the checkpoint's value when "
+            "re-evaluating."
+        ),
+    )
+    parser.add_argument(
         "--progress-weight",
         type=float,
         default=WEIGHT_PROGRESS,
@@ -268,6 +296,8 @@ def parse_args() -> TrainSacArguments:
         expert_match_bonus=arguments.expert_match_bonus,
         residual_expert_base=arguments.residual_expert_base,
         residual_action_scale=arguments.residual_action_scale,
+        residual_base_source=arguments.residual_base_source,
+        residual_hazard_gated=arguments.residual_hazard_gated,
         progress_weight=arguments.progress_weight,
         curvature_aware_center_offset=arguments.curvature_aware_center_offset,
         wall_proximity_speed_scale_mps=arguments.wall_proximity_speed_scale_mps,
@@ -331,6 +361,8 @@ def train(args: TrainSacArguments) -> tuple[SACAgent, TrainingState, float]:
             expert_match=args.expert_match_bonus,
             residual_base=args.residual_expert_base,
             residual_scale=args.residual_action_scale,
+            residual_base_source=args.residual_base_source,
+            residual_hazard_gated=args.residual_hazard_gated,
             progress_weight=args.progress_weight,
             curvature_aware_center_offset=args.curvature_aware_center_offset,
             wall_proximity_speed_scale_mps=args.wall_proximity_speed_scale_mps,
@@ -443,6 +475,8 @@ def main() -> None:
         baselines=baselines,
         residual_base=args.residual_expert_base,
         residual_scale=args.residual_action_scale,
+        residual_base_source=args.residual_base_source,
+        residual_hazard_gated=args.residual_hazard_gated,
     )
 
     agent.save(checkpoints_dir / "policy_final.pt", include_training_state=True)

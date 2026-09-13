@@ -555,13 +555,16 @@ def _proximity_ratio(distance_m: float, *, warning_distance_m: float) -> float:
     return (warning_distance_m - max(0.0, distance_m)) / warning_distance_m
 
 
-def _in_hazard(sensors: RobotSensors) -> bool:
+def in_hazard(sensors: RobotSensors) -> bool:
     """Return whether `sensors` describes a wall- or competitor-proximity hazard.
 
-    Reuses the exact proximity checks `_wall_proximity_penalty`/
-    `_robot_proximity_penalty` are built from (regardless of whether those
-    mechanisms' own weights are currently enabled), so "hazard" here means
-    precisely the situations this file already has a notion of being risky.
+    Public (2026-09-13) since `training.controller`'s `residual_hazard_gated`
+    mode reuses this exact check to decide when to apply a residual
+    correction at all, not just to compute a reward term. Reuses the exact
+    proximity checks `_wall_proximity_penalty`/`_robot_proximity_penalty` are
+    built from (regardless of whether those mechanisms' own weights are
+    currently enabled), so "hazard" here means precisely the situations this
+    file already has a notion of being risky.
     """
     wall_hazard = _wall_proximity_penalty(sensors.wall_lidar) > 0.0
     robot_hazard = _robot_proximity_penalty(sensors.camera.competitors) > 0.0
@@ -581,6 +584,6 @@ def _expert_match_penalty(
     nudged toward the expert's, only behavior at the exact moments already
     flagged as risky by this file's own proximity checks.
     """
-    if previous_action is None or expert_action is None or not _in_hazard(previous):
+    if previous_action is None or expert_action is None or not in_hazard(previous):
         return 0.0
     return (abs(previous_action[0] - expert_action[0]) + abs(previous_action[1] - expert_action[1])) / 2.0

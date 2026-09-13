@@ -2283,6 +2283,107 @@ primary approach, roughly in order of expected leverage:
    pace. No further attempts at this specific goal are planned. The
    seed=12000 safety-focused alternative remains available if priorities
    change, but is not being pursued by default.
+
+   **Decision (2026-09-13) — seed 12000 adopted in place of v2, on
+   safety grounds:** given the seven-attempt chain above and this
+   section's own read that the remaining pace gap is likely structural
+   (the expert accepts more crash risk than a safety-balanced reward
+   reproduces), re-weighed the two checkpoints with "don't sacrifice
+   safety" as the deciding criterion rather than continuing to search for
+   a pace-closing lever. `src/controllers/combined_candidate.py` now loads
+   `2026-09-12_residual-seedsweep-12000` instead of v2:
+
+   | | v2 (seed=8000, prior) | seed=12000 (adopted) |
+   | --- | --- | --- |
+   | avg damage (standard) | 0.0254 | **0.0020 (12.7x lower)** |
+   | avg lap time (standard) | 11.37s | 11.57s (~tied) |
+   | fastest lap (standard) | 10.33s | **10.23s (new record)** |
+   | eliminated (vs. expert) | 0/10 | 0/10 |
+   | wins (vs. expert) | 0/10 | **1/10 (only checkpoint to ever win)** |
+   | avg lap time (vs. expert) | 11.78s | 13.25s (slower on average) |
+
+   This does not close the average-pace gap to Lucy's raw expert (8.94s
+   solo) — no new lever was tried, and the seed-sweep data above already
+   showed no sampled seed beats v2's average pace. The trade made
+   explicit: giving up a small amount of average pace against the expert
+   for an order-of-magnitude safety margin and a new fastest-lap record,
+   rather than continuing to spend attempts chasing a gap this section's
+   own evidence suggests may not be closable without taking on the
+   expert's own risk tolerance. No new training was run; both checkpoints
+   were already evaluated above. See
+   `src/controllers/combined_candidate.py`'s updated docstring and
+   `experiments/2026-09-12_residual-seedsweep-12000/notes.md`.
+
+   **Next steps:** None planned on this axis. If average-pace parity with
+   the expert becomes the explicit priority again, revisit only with a
+   genuinely new lever — every axis tried so far (residual scale x2, 5
+   seeds, progress-weight, curvature-aware reward, wall-proximity-speed-
+   scale, damage-weight, mixed-opponent curriculum) is exhausted.
+
+   **Decision (2026-09-13) — residual base switched from the expert to
+   the imitation clone, on direction, plus hazard-gating (a genuinely new
+   lever):** re-opened by direction, on different grounds than pace —
+   visibly combine both tracks' own *trained* artifacts
+   (`controllers.imitation`, Lucy's behavioral clone) rather than one
+   trained network and one hand-written control law
+   (`controllers.leaderboard_expert`). Added `residual_base_source`
+   (`"expert"`/`"clone"`) to `TrainableController`'s `residual_base` mode.
+   A first matched run (uniform correction, clone base, scale=0.3,
+   `experiments/2026-09-13_residual-clone-base-seed8000/`) was *worse*
+   than the equivalent expert-base checkpoint head-to-head against
+   `leaderboard_expert` (2/10 eliminated vs. 1/10) — expected, since the
+   clone is a lossy approximation and a uniform per-tick correction has
+   to spend capacity compensating for wherever it drifts from the exact
+   expert, not just extending an already-exact policy.
+
+   Establishing `controllers.imitation` run completely *alone* as a
+   baseline (`experiments/2026-09-13_clone-alone-baseline/`) reframed the
+   goal: it's already excellent (0/10 eliminated + 6/10 wins vs.
+   `leaderboard_expert`, ~8.8-8.9s best lap, far faster than any residual
+   variant), with one real, narrow weakness — 2/10 eliminations vs.
+   `default_student_controller` specifically. A uniform correction (swept
+   at scale 0.1/0.3/0.5) fixes that weakness only at scale ≥0.3, and only
+   by taxing pace on *every* tick (45-55% slower) and introducing a new,
+   worse `leaderboard_expert` elimination rate the raw clone never had —
+   the wrong shape of fix for a failure localized to rare proximity
+   moments.
+
+   The genuinely new lever: `residual_hazard_gated` mode applies the
+   correction *only* on ticks `training.reward.in_hazard` (made public)
+   judges a wall/competitor-proximity hazard; every other tick the base
+   command passes through untouched. (Correctness detail: gated-off ticks
+   push a zeroed action to the replay buffer, not the network's actual
+   output, since that output had no physical effect and storing it would
+   mislabel the transition for the critic.) At scale=0.3
+   (`experiments/2026-09-13_residual-clone-hazard-gated-seed8000/`), this
+   is Pareto-better than every uniform variant on every metric tested:
+   `default_student_controller` eliminations 2/10 → 1/10 (partial fix) at
+   roughly a third of the uniform correction's pace cost, and the
+   `leaderboard_expert` elimination rate shrinks (2/10 → 1/10) instead of
+   growing. Widening the gate's scale further (0.6) reversed this —
+   eliminations rose across the board, including a new `crash_fast`
+   failure mode neither the clone alone nor either 0.3 variant had.
+
+   **Honest characterization, not a claimed win:** hazard-gated scale=0.3
+   is the best combined-approach trade found on the clone base so far —
+   it measurably improves the clone's one identified weakness at a real,
+   smaller-than-before pace cost, and its own smaller new weakness against
+   `leaderboard_expert`. It does not dominate the clone alone on every
+   axis (the clone alone remains strictly safer and faster against
+   `leaderboard_expert` specifically). `src/controllers/combined_candidate
+   .py` now loads this checkpoint and its own docstring makes this
+   trade-off explicit rather than overstating it. See
+   `docs/lab_notebook.md`'s 2026-09-13 (combined-approach, continued)
+   14:29 entry for the full numeric comparison table and every
+   intermediate run's `notes.md`.
+
+   **Next steps:** A seed sweep at this exact config (n=1 caution, as
+   always); widening what counts as a "hazard" (earlier warning distance,
+   more lead time) rather than the correction's magnitude, since scale=0.6
+   showed magnitude is not the productive lever once gating is in place;
+   `src/training/imitation_handoff.py`'s unfinished warm-start-then-
+   fine-tune path remains a structurally different, untried alternative
+   to this frozen-clone-plus-gated-residual composition.
 1. **Training budget** — scale up races/round length/gradient updates.
    First attempt (2026-09-01: races 6→10, round length 15s→60s,
    ~2,400→17,751 gradient updates, same reward/hyperparameters/seed as the

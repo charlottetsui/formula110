@@ -1,0 +1,9 @@
+checkpoint: experiments/2026-09-13_residual-clone-base-seed8000/checkpoints/policy_final.pt
+hidden_size: 128
+eval_seeds: (110, 42, 7, 2024, 8675309)
+eval_races: 2
+eval_round_seconds: 120.0
+residual_expert_base: True
+residual_action_scale: 0.3
+residual_base_source: clone
+baseline: leaderboard-expert

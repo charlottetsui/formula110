@@ -15,11 +15,19 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from controllers.imitation import create_controller as create_clone_controller
 from controllers.leaderboard_expert import create_controller as create_expert_controller
-from racing.student.api import RobotCommand, RobotSensors
+from racing.student.api import RobotCommand, RobotController, RobotSensors
 from training.observation import encode_observation
 from training.replay_buffer import ReplayBuffer
-from training.reward import WALL_PROXIMITY_SPEED_SCALE_MPS, WEIGHT_DAMAGE, WEIGHT_PROGRESS, is_terminal, step_reward
+from training.reward import (
+    WALL_PROXIMITY_SPEED_SCALE_MPS,
+    WEIGHT_DAMAGE,
+    WEIGHT_PROGRESS,
+    in_hazard,
+    is_terminal,
+    step_reward,
+)
 from training.sac import SACAgent
 from training.trajectory import WEIGHT_TRAJECTORY_BONUS, BestTrajectoryTracker, bonus_from_snapshot
 
@@ -28,11 +36,25 @@ DEFAULT_UPDATE_EVERY_N_STEPS = 4
 DEFAULT_BATCH_SIZE = 256
 DEFAULT_N_STEP = 1
 # Added 2026-09-11 for residual_base mode: bounds how much the policy's per-tick correction
-# can shift the expert's command in either action dimension. Chosen as a moderate fraction of
-# the full [-1, 1] action range -- large enough to matter, small enough that the expert's
+# can shift the base command in either action dimension. Chosen as a moderate fraction of
+# the full [-1, 1] action range -- large enough to matter, small enough that the base
 # command still dominates and the policy is learning a genuine correction, not reproducing a
 # full independent action. Not yet tuned by a dedicated sweep.
 RESIDUAL_ACTION_SCALE = 0.3
+# Added 2026-09-13: which of the imitation-learning track's two finished artifacts supplies
+# residual_base mode's base action -- "expert" (controllers.leaderboard_expert, the hand-written
+# rule-based controller) or "clone" (controllers.imitation, the behavioral clone trained on the
+# expert's trajectories). See TrainableController's docstring for the tradeoff.
+RESIDUAL_BASE_SOURCES = ("expert", "clone")
+DEFAULT_RESIDUAL_BASE_SOURCE = "expert"
+
+
+def _create_residual_base_controller(residual_base_source: str) -> RobotController:
+    if residual_base_source == "expert":
+        return create_expert_controller()
+    if residual_base_source == "clone":
+        return create_clone_controller()
+    raise ValueError(f"Unknown residual_base_source {residual_base_source!r}, expected one of {RESIDUAL_BASE_SOURCES}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,9 +131,9 @@ class TrainableController:
     separate imitation-learning work.
 
     Pass ``residual_base=True`` for a structurally different combination:
-    the expert's command becomes the base action every tick, and the SAC
-    policy only ever learns a bounded *correction* on top of it, scaled by
-    ``residual_scale`` (default ``RESIDUAL_ACTION_SCALE``) -- "residual
+    a base controller's command becomes the base action every tick, and the
+    SAC policy only ever learns a bounded *correction* on top of it, scaled
+    by ``residual_scale`` (default ``RESIDUAL_ACTION_SCALE``) -- "residual
     reinforcement learning." The
     policy's raw (unscaled) output is what gets pushed to the replay
     buffer and what SAC's Bellman backup is defined over, since that is
@@ -120,18 +142,50 @@ class TrainableController:
     Unlike the inference-time hybrid shield (`controllers.hybrid_controller`,
     a hard switch that was found to trade fewer close calls for more
     catastrophic ones -- see docs/lab_notebook.md's 2026-09-11 entry), the
-    expert's influence here is continuous on every tick, so there is no
-    discontinuity for the policy to trip over. Mutually exclusive with
+    base controller's influence here is continuous on every tick, so there
+    is no discontinuity for the policy to trip over. Mutually exclusive with
     ``expert_match`` (raises ``ValueError`` if both are set) -- the
     expert-match bonus assumes ``previous_action`` is an absolute
     throttle/steer command, which it no longer is once the policy's
     output is a residual instead.
+
+    ``residual_base_source`` (2026-09-13) picks which of the imitation-
+    learning track's two artifacts supplies that base command: ``"expert"``
+    (default, unchanged from the original causal test 37) uses
+    `controllers.leaderboard_expert.Controller`, the hand-written
+    deterministic rules -- exact, and the only one with a stuck-recovery
+    maneuver to detect and pass through (see the recovery-passthrough
+    branch below). ``"clone"`` instead uses `controllers.imitation
+    .Controller`, the behavioral clone trained on the expert's
+    trajectories -- an approximation of the expert with its own clone
+    error, and no recovery-maneuver state, so the passthrough branch below
+    is simply never triggered for it (`getattr` defaults to 0). Building on
+    the clone means the residual policy's job includes compensating for
+    whatever the clone gets wrong relative to the expert it was trained to
+    imitate, not just extending a policy that's already exact.
 
     ``wall_proximity_speed_scale_mps`` and ``damage_weight`` (2026-09-12)
     override ``training.reward``'s constants of the same intent for this
     controller's own reward calculation, both defaulting to the module
     constants -- opt-in, residual-mode-specific "accept more risk on
     purpose" levers, see those constants' docstrings in ``training.reward``.
+
+    Pass ``residual_hazard_gated=True`` (2026-09-13, requires
+    ``residual_base=True``) to apply the correction *only* on ticks
+    ``training.reward.in_hazard`` judges a wall- or competitor-proximity
+    hazard -- every other tick, the base command passes through completely
+    unmodified, exactly as if no SAC policy were present. Built for the
+    clone base specifically: a uniform correction on every tick (plain
+    ``residual_base``) was found to cost the clone's already-strong solo
+    pace everywhere, for a fix that's only actually needed in the rare
+    proximity moments where the clone's lack of explicit hazard-avoidance
+    logic shows up (see docs/lab_notebook.md's 2026-09-13 clone-base
+    entries). When gated off, the raw ``action`` computed this tick had no
+    physical effect on the command the car received, so ``np.zeros_like``
+    is pushed to the replay buffer/Bellman backup *in its place* -- storing
+    the actual, non-zero network output would mislabel a transition whose
+    real applied action was zero, corrupting the critic's Q(s, a) estimate
+    for whatever nonzero action the network happened to output that tick.
     """
 
     def __init__(
@@ -143,6 +197,8 @@ class TrainableController:
         expert_match: bool = False,
         residual_base: bool = False,
         residual_scale: float = RESIDUAL_ACTION_SCALE,
+        residual_base_source: str = DEFAULT_RESIDUAL_BASE_SOURCE,
+        residual_hazard_gated: bool = False,
         progress_weight: float = WEIGHT_PROGRESS,
         curvature_aware_center_offset: bool = False,
         wall_proximity_speed_scale_mps: float = WALL_PROXIMITY_SPEED_SCALE_MPS,
@@ -150,6 +206,12 @@ class TrainableController:
     ) -> None:
         if expert_match and residual_base:
             raise ValueError("expert_match and residual_base are mutually exclusive action-composition modes")
+        if residual_base_source not in RESIDUAL_BASE_SOURCES:
+            raise ValueError(
+                f"Unknown residual_base_source {residual_base_source!r}, expected one of {RESIDUAL_BASE_SOURCES}"
+            )
+        if residual_hazard_gated and not residual_base:
+            raise ValueError("residual_hazard_gated requires residual_base=True")
         self._state = state
         self.training = training
         self._deterministic = (not training) if deterministic is None else deterministic
@@ -161,15 +223,23 @@ class TrainableController:
         self._expert_match = expert_match
         self._residual_base = residual_base
         self._residual_scale = residual_scale
+        self._residual_base_source = residual_base_source
+        self._residual_hazard_gated = residual_hazard_gated
         self._progress_weight = progress_weight
         self._curvature_aware_center_offset = curvature_aware_center_offset
         self._wall_proximity_speed_scale_mps = wall_proximity_speed_scale_mps
         self._damage_weight = damage_weight
-        # A private shadow instance of the expert controller. In expert_match mode it's fed
-        # every tick's real sensors purely to compute what it would have done (never used for
-        # control) -- see training.reward's WEIGHT_EXPERT_MATCH docstring. In residual_base
-        # mode it actually supplies the base action every tick, per this class's own docstring.
-        self._shadow_expert = create_expert_controller() if (expert_match or residual_base) else None
+        # A private shadow instance of a base controller. In expert_match mode this is always
+        # the expert, fed every tick's real sensors purely to compute what it would have done
+        # (never used for control) -- see training.reward's WEIGHT_EXPERT_MATCH docstring. In
+        # residual_base mode it actually supplies the base action every tick (expert or clone,
+        # per residual_base_source), per this class's own docstring.
+        if expert_match:
+            self._shadow_base: RobotController | None = create_expert_controller()
+        elif residual_base:
+            self._shadow_base = _create_residual_base_controller(residual_base_source)
+        else:
+            self._shadow_base = None
         self._previous_expert_action: tuple[float, float] | None = None
 
     def __call__(self, sensors: RobotSensors) -> RobotCommand:
@@ -214,8 +284,8 @@ class TrainableController:
             self._state.record_step()
             self._state.maybe_update()
 
-        if self._expert_match and self._shadow_expert is not None:
-            expert_command = self._shadow_expert(sensors)
+        if self._expert_match and self._shadow_base is not None:
+            expert_command = self._shadow_base(sensors)
             self._previous_expert_action = (expert_command.throttle, expert_command.steer)
 
         action = self._select_action(observation)
@@ -224,7 +294,7 @@ class TrainableController:
         self._previous_action = action
 
         if self._residual_base:
-            assert self._shadow_expert is not None
+            assert self._shadow_base is not None
             # Diagnosed 2026-09-11 (experiments/2026-09-11_residual-expert-base-seed8000/
             # notes.md): a repeated stuck-against-the-same-wall-spot loop, not a single
             # high-speed crash. The expert's stuck-recovery maneuver (a fixed reverse +
@@ -234,13 +304,21 @@ class TrainableController:
             # the obstacle before driving straight back into it. A recovery maneuver can
             # both start and be mid-flight within a single call (the trigger check and the
             # "still recovering" branch both live inside leaderboard_expert.py's __call__),
-            # so check the counter on both sides of calling the expert -- either a nonzero
-            # value before the call (already recovering) or a jump above zero after it
-            # (just triggered this tick) means this command was a recovery command.
-            recovery_before = getattr(self._shadow_expert, "_recovery_ticks_remaining", 0)
-            base_command = self._shadow_expert(sensors)
-            recovery_after = getattr(self._shadow_expert, "_recovery_ticks_remaining", 0)
+            # so check the counter on both sides of calling the base controller -- either a
+            # nonzero value before the call (already recovering) or a jump above zero after
+            # it (just triggered this tick) means this command was a recovery command. The
+            # clone base (residual_base_source="clone") has no such attribute, so getattr's
+            # default of 0 correctly makes this branch a no-op for it.
+            recovery_before = getattr(self._shadow_base, "_recovery_ticks_remaining", 0)
+            base_command = self._shadow_base(sensors)
+            recovery_after = getattr(self._shadow_base, "_recovery_ticks_remaining", 0)
             if recovery_before > 0 or recovery_after > 0:
+                return base_command
+            if self._residual_hazard_gated and not in_hazard(sensors):
+                # No physical effect this tick -- the buffer must record what was actually
+                # applied (nothing), not whatever the network happened to output, or the
+                # critic would mislearn this observation's effect for a nonzero action.
+                self._previous_action = np.zeros_like(action)
                 return base_command
             return RobotCommand(
                 throttle=_clamp_unit(base_command.throttle + self._residual_scale * float(action[0])),
@@ -306,6 +384,8 @@ class TrainableController:
             expert_match=self._expert_match,
             residual_base=self._residual_base,
             residual_scale=self._residual_scale,
+            residual_base_source=self._residual_base_source,
+            residual_hazard_gated=self._residual_hazard_gated,
             progress_weight=self._progress_weight,
             curvature_aware_center_offset=self._curvature_aware_center_offset,
             wall_proximity_speed_scale_mps=self._wall_proximity_speed_scale_mps,

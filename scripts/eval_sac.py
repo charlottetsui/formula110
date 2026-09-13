@@ -20,7 +20,7 @@ from pathlib import Path
 
 from controllers.leaderboard_expert import create_controller as create_expert_controller
 from racing.student.api import RobotController
-from training.controller import RESIDUAL_ACTION_SCALE
+from training.controller import DEFAULT_RESIDUAL_BASE_SOURCE, RESIDUAL_ACTION_SCALE, RESIDUAL_BASE_SOURCES
 from training.evaluation import BASELINE_CONTROLLERS, evaluate_against_baselines
 from training.observation import OBSERVATION_DIM
 from training.sac import SACAgent
@@ -39,6 +39,8 @@ class EvalSacArguments:
     eval_round_seconds: float
     residual_expert_base: bool
     residual_action_scale: float
+    residual_base_source: str
+    residual_hazard_gated: bool
     baseline: str
     experiment_dir: Path
 
@@ -66,6 +68,17 @@ def parse_args() -> EvalSacArguments:
         help="must match the value passed to train_sac.py's --residual-action-scale when this checkpoint was trained",
     )
     parser.add_argument(
+        "--residual-base-source",
+        choices=RESIDUAL_BASE_SOURCES,
+        default=DEFAULT_RESIDUAL_BASE_SOURCE,
+        help="must match the value passed to train_sac.py's --residual-base-source when this checkpoint was trained",
+    )
+    parser.add_argument(
+        "--residual-hazard-gated",
+        action="store_true",
+        help="must match whether train_sac.py's --residual-hazard-gated was passed when this checkpoint was trained",
+    )
+    parser.add_argument(
         "--baseline",
         choices=("standard", "leaderboard-expert"),
         default="standard",
@@ -89,6 +102,8 @@ def parse_args() -> EvalSacArguments:
         eval_round_seconds=arguments.eval_round_seconds,
         residual_expert_base=arguments.residual_expert_base,
         residual_action_scale=arguments.residual_action_scale,
+        residual_base_source=arguments.residual_base_source,
+        residual_hazard_gated=arguments.residual_hazard_gated,
         baseline=arguments.baseline,
         experiment_dir=arguments.experiment_dir,
     )
@@ -113,6 +128,8 @@ def main() -> None:
         baselines=baselines,
         residual_base=args.residual_expert_base,
         residual_scale=args.residual_action_scale,
+        residual_base_source=args.residual_base_source,
+        residual_hazard_gated=args.residual_hazard_gated,
     )
 
     (experiment_dir / "config.yaml").write_text(
@@ -121,6 +138,10 @@ def main() -> None:
         f"eval_seeds: {args.eval_seeds}\n"
         f"eval_races: {args.eval_races}\n"
         f"eval_round_seconds: {args.eval_round_seconds}\n"
+        f"residual_expert_base: {args.residual_expert_base}\n"
+        f"residual_action_scale: {args.residual_action_scale}\n"
+        f"residual_base_source: {args.residual_base_source}\n"
+        f"residual_hazard_gated: {args.residual_hazard_gated}\n"
         f"baseline: {args.baseline}\n"
     )
     (experiment_dir / "eval_results.json").write_text(json.dumps(eval_results, indent=2))
