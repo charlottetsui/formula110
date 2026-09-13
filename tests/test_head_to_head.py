@@ -282,6 +282,8 @@ def test_head_to_head_result_has_versioned_json_compatible_record() -> None:
             ),
         ),
         random_seed=271,
+        track_id="procedural-110",
+        track_seed=110,
         fixed_delta_seconds=1 / 60,
     )
 
@@ -290,6 +292,8 @@ def test_head_to_head_result_has_versioned_json_compatible_record() -> None:
 
     assert record["schema_version"] == 1
     assert record["fixed_delta_seconds"] == pytest.approx(1 / 60)
+    assert record["track_id"] == "procedural-110"
+    assert record["track_seed"] == 110
     assert record["summary"] == {
         "winner": "challenger",
         "race_count": 1,

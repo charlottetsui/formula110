@@ -26,6 +26,7 @@ from racing.race.head_to_head import (
     format_head_to_head_result,
     run_headless_head_to_head,
 )
+from racing.race.progress import ResolvedTrack, resolve_track
 from racing.race.rules import HeadToHeadRaceRules, HeadToHeadScoring
 from racing.student.api import (
     CameraCompetitorReading,
@@ -43,6 +44,12 @@ from racing.student.api import (
     default_student_controller,
     load_student_controller,
     load_student_submission,
+)
+from racing.track.procedural import (
+    DEFAULT_PROCEDURAL_TRACK_CONFIG,
+    TRACK_ID_PROCEDURAL,
+    ProceduralTrackConfig,
+    generate_procedural_track,
 )
 from racing.track.world import (
     MUGELLO_SHORT_LAYOUT,
@@ -65,11 +72,13 @@ from racing.track.world import (
 )
 
 __all__ = [
+    "DEFAULT_PROCEDURAL_TRACK_CONFIG",
     "HUMAN_GAMEPLAY_SCHEMA_VERSION",
     "MUGELLO_SHORT_LAYOUT",
     "NOMINAL_CAR_WIDTH",
     "START_POSITION",
     "TRACK_ID_MUGELLO_SHORT",
+    "TRACK_ID_PROCEDURAL",
     "TRACK_LAYOUT_SCALE",
     "TRACK_SCALE",
     "TRACK_WIDTH",
@@ -90,7 +99,9 @@ __all__ = [
     "LidarSensors",
     "OdometrySensors",
     "PhysicsScene",
+    "ProceduralTrackConfig",
     "RacingAudioConfig",
+    "ResolvedTrack",
     "RobotCommand",
     "RobotController",
     "RobotControllerFactory",
@@ -112,10 +123,12 @@ __all__ = [
     "create_head_to_head_viewer_app",
     "default_student_controller",
     "format_head_to_head_result",
+    "generate_procedural_track",
     "human_gameplay_record",
     "load_student_controller",
     "load_student_submission",
     "main",
+    "resolve_track",
     "robot_command_to_dict",
     "robot_sensors_to_dict",
     "run_headless_head_to_head",

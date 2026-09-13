@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from importlib import import_module
+from math import cos, radians, sin
 from typing import Any, cast
 
 import pytest
 
-from racing.physics import create_physics_world
-from racing.race.progress import default_track_progress_model
-from racing.race.runtime import seeded_race_start_finish_pose
 from racing.graphics.track_mesh import clean_offset_path
 from racing.graphics.track_rendering import (
     START_FINISH_ARGYLE_FLOOR_LENGTH,
@@ -22,14 +20,21 @@ from racing.graphics.track_rendering import (
     TRACK_EDGE_BUFFER,
     TRACK_KERB_INNER_DISTANCE,
     TRACK_KERB_OUTER_DISTANCE,
+    TRACK_LIGHT_NOMINAL_SPACING_M,
+    TRACK_LIGHT_SIDE_DISTANCE,
     TRACK_SURFACE_Y,
     TRACK_WALL_THICKNESS,
     add_racing_scene_collisions,
     start_finish_banner_side_distances,
     start_finish_render_pose,
     start_finish_track_slice,
+    track_light_layouts,
 )
-from racing.track.world import TRACK_WIDTH, sampled_track_centerline
+from racing.physics import create_physics_world
+from racing.race.progress import default_track_progress_model, project_track_position, resolve_track
+from racing.race.runtime import seeded_race_start_finish_pose
+from racing.track.procedural import TRACK_ID_PROCEDURAL
+from racing.track.world import TRACK_WIDTH, TrackPoint, sampled_track_centerline
 
 
 def test_kerb_center_rays_hit_flat_floor_collider() -> None:
@@ -95,6 +100,37 @@ def test_start_finish_banner_is_tall_enough_for_formula_logo() -> None:
 
 
 def test_start_finish_floor_argyle_matches_texture_aspect_ratio() -> None:
-    assert START_FINISH_ARGYLE_FLOOR_WIDTH / START_FINISH_ARGYLE_FLOOR_LENGTH == pytest.approx(
-        START_FINISH_ARGYLE_TEXTURE_ASPECT_RATIO
+    assert pytest.approx(START_FINISH_ARGYLE_TEXTURE_ASPECT_RATIO) == (
+        START_FINISH_ARGYLE_FLOOR_WIDTH / START_FINISH_ARGYLE_FLOOR_LENGTH
+    )
+
+
+def test_procedural_track_lights_use_equal_distance_intervals_and_alternate_sides() -> None:
+    resolved = resolve_track(TRACK_ID_PROCEDURAL, 110)
+    layouts = track_light_layouts(resolved.samples, legacy_layout=False)
+    target_projections = tuple(
+        project_track_position(resolved.model, TrackPoint(layout.target[0], layout.target[2])) for layout in layouts
+    )
+    progress_distances = tuple(projection.progress_distance_m for projection in target_projections)
+    gaps = tuple(
+        (progress_distances[(index + 1) % len(layouts)] - distance) % resolved.model.total_length_m
+        for index, distance in enumerate(progress_distances)
+    )
+    side_vectors = tuple((layout.post[0] - layout.target[0], layout.post[2] - layout.target[2]) for layout in layouts)
+    signed_sides = tuple(
+        side_x * -cos(radians(projection.heading_degrees)) + side_z * sin(radians(projection.heading_degrees))
+        for (side_x, side_z), projection in zip(side_vectors, target_projections, strict=True)
+    )
+
+    assert len(layouts) % 2 == 0
+    assert sum(gaps) / len(gaps) == pytest.approx(TRACK_LIGHT_NOMINAL_SPACING_M, rel=0.08)
+    assert max(gaps) - min(gaps) < 1e-6
+    assert all((x * x + z * z) ** 0.5 == pytest.approx(TRACK_LIGHT_SIDE_DISTANCE) for x, z in side_vectors)
+    assert all(
+        first * second < 0.0
+        for first, second in zip(
+            signed_sides,
+            (*signed_sides[1:], signed_sides[0]),
+            strict=True,
+        )
     )

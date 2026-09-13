@@ -40,8 +40,8 @@ from racing.graphics.render_assets import create_scene_assets
 from racing.graphics.track_rendering import (
     NIGHT_SKY_COLOR,
     START_HEADING_DEGREES,
-    add_mugello_short_track,
     add_racing_scene_collisions,
+    add_track,
     add_trackside_scenery,
     add_world_floor,
     set_start_finish_gantry_pose,
@@ -78,9 +78,11 @@ from racing.race.head_to_head import (
     head_to_head_team_stats_from_runtimes,
 )
 from racing.race.progress import (
+    TrackProgressModel,
     TrackProjection,
     default_track_progress_model,
     project_track_position,
+    resolve_track,
 )
 from racing.race.rules import HEAD_TO_HEAD_DEFAULT_WIN_MARGIN_M, HeadToHeadRaceRules
 from racing.race.runtime import (
@@ -107,7 +109,7 @@ from racing.sound.audio import (
     update_audio_mute_key,
 )
 from racing.student.api import RobotCommand, RobotController
-from racing.track.world import TrackPoint
+from racing.track.world import TRACK_ID_MUGELLO_SHORT, TrackPoint
 
 PLAYABLE_MAX_FRAME_DELTA_SECONDS = 0.25
 PLAYABLE_MAX_FIXED_STEPS_PER_FRAME = 8
@@ -245,7 +247,10 @@ def build_scene(config: GameConfig) -> RunnableApp:
     physics_world = create_physics_world()
     physics_scene = PhysicsScene(world=physics_world, vehicles=[])
 
-    track_model = default_track_progress_model()
+    resolved_track = resolve_track(config.track_id, config.track_seed)
+    track_model = resolved_track.model
+    track_samples = resolved_track.samples
+    app.racing_track = resolved_track
     seeded_spawn_pose = race_spawn_poses(
         1,
         model=track_model,
@@ -280,23 +285,33 @@ def build_scene(config: GameConfig) -> RunnableApp:
     )
     start_finish_pose = start_finish_render_pose(
         position=start_finish_progress_pose.position,
+        samples=track_samples,
     )
 
-    add_world_floor(ursina=ursina, physics_world=physics_world, assets=assets, include_collision=False)
-    add_mugello_short_track(
+    add_world_floor(
         ursina=ursina,
         physics_world=physics_world,
         assets=assets,
+        include_collision=False,
+        samples=track_samples,
+    )
+    add_track(
+        ursina=ursina,
+        physics_world=physics_world,
+        assets=assets,
+        samples=track_samples,
         start_line_position=start_finish_pose.position,
         start_line_heading_degrees=start_finish_pose.heading_degrees,
         include_collision=False,
+        legacy_lighting=resolved_track.track_id == TRACK_ID_MUGELLO_SHORT,
     )
-    add_racing_scene_collisions(physics_world=physics_world, render=ursina.scene)
+    add_racing_scene_collisions(physics_world=physics_world, render=ursina.scene, samples=track_samples)
     add_trackside_scenery(
         ursina=ursina,
         assets=assets,
         start_line_position=start_finish_pose.position,
         start_line_heading_degrees=start_finish_pose.heading_degrees,
+        samples=track_samples,
     )
 
     robot = create_robot_vehicle(
@@ -316,6 +331,7 @@ def build_scene(config: GameConfig) -> RunnableApp:
             robot=robot,
             start_position=TrackPoint(spawn_position[0], spawn_position[2]),
             starting_progress_distance_m=spawn_progress_distance_m,
+            model=track_model,
         )
         if config.student_controller is not None
         else None
@@ -464,12 +480,13 @@ def student_marshal_runtime(
     robot: RobotVehicle,
     start_position: TrackPoint,
     starting_progress_distance_m: float | None = None,
+    model: TrackProgressModel | None = None,
 ) -> RaceCarRuntime:
     """Create the race bookkeeping needed to reset a stuck student car."""
-    model = default_track_progress_model()
-    start_projection = project_track_position(model, start_position)
+    track_model = default_track_progress_model() if model is None else model
+    start_projection = project_track_position(track_model, start_position)
     tracker = lap_progress_tracker_for_spawn_pose(
-        model=model,
+        model=track_model,
         spawn_pose=RaceSpawnPose(
             position=(start_position.x, 0.0, start_position.z),
             heading_degrees=start_projection.heading_degrees,
@@ -525,8 +542,17 @@ def build_head_to_head_viewer_scene(config: HeadToHeadViewerConfig) -> RunnableA
     physics_world = create_physics_world()
     physics_scene = PhysicsScene(world=physics_world, vehicles=[])
 
-    add_world_floor(ursina=ursina, physics_world=physics_world, assets=assets, include_collision=False)
-    model = default_track_progress_model()
+    resolved_track = resolve_track(config.track_id, config.track_seed)
+    model = resolved_track.model
+    track_samples = resolved_track.samples
+    app.racing_track = resolved_track
+    add_world_floor(
+        ursina=ursina,
+        physics_world=physics_world,
+        assets=assets,
+        include_collision=False,
+        samples=track_samples,
+    )
     start_finish_progress_pose = seeded_race_start_finish_pose(
         model=model,
         config=FORMULA_VEHICLE_PHYSICS_CONFIG,
@@ -535,21 +561,25 @@ def build_head_to_head_viewer_scene(config: HeadToHeadViewerConfig) -> RunnableA
     )
     start_finish_pose = start_finish_render_pose(
         position=start_finish_progress_pose.position,
+        samples=track_samples,
     )
-    start_finish_track_line = add_mugello_short_track(
+    start_finish_track_line = add_track(
         ursina=ursina,
         physics_world=physics_world,
         assets=assets,
+        samples=track_samples,
         start_line_position=start_finish_pose.position,
         start_line_heading_degrees=start_finish_pose.heading_degrees,
         include_collision=False,
+        legacy_lighting=resolved_track.track_id == TRACK_ID_MUGELLO_SHORT,
     )
-    add_racing_scene_collisions(physics_world=physics_world, render=ursina.scene)
+    add_racing_scene_collisions(physics_world=physics_world, render=ursina.scene, samples=track_samples)
     start_finish_gantry = add_trackside_scenery(
         ursina=ursina,
         assets=assets,
         start_line_position=start_finish_pose.position,
         start_line_heading_degrees=start_finish_pose.heading_degrees,
+        samples=track_samples,
     )
 
     entries = head_to_head_race_entries(
@@ -694,6 +724,7 @@ def build_head_to_head_viewer_scene(config: HeadToHeadViewerConfig) -> RunnableA
         )
         next_start_finish_pose = start_finish_render_pose(
             position=next_start_finish_progress_pose.position,
+            samples=track_samples,
         )
         set_start_finish_pose(
             start_finish_track_line,
@@ -849,6 +880,8 @@ def build_head_to_head_viewer_scene(config: HeadToHeadViewerConfig) -> RunnableA
                 win_margin_m=race_rules.win_margin_m,
                 races=tuple(completed_race_results),
                 random_seed=config.random_seed,
+                track_id=resolved_track.track_id,
+                track_seed=resolved_track.seed,
                 rules=race_rules,
                 fixed_delta_seconds=config.fixed_delta_seconds,
             )

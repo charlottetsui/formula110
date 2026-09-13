@@ -7,7 +7,6 @@ from importlib import import_module
 from math import atan, atan2, degrees, hypot
 from typing import Any, cast
 
-from racing.physics import attach_static_box
 from racing.graphics.render_assets import (
     CAROLINA_BLUE_COLOR,
     INNER_WALL_LIGHTNESS_SCALE,
@@ -28,7 +27,15 @@ from racing.graphics.track_mesh import (
     wall_offsets_for_side,
     wall_paint_offsets_for_side,
 )
-from racing.track.world import START_POSITION, TRACK_SCALE, TRACK_WIDTH, TrackPoint, sampled_track_centerline, track_bounds
+from racing.physics import attach_static_box
+from racing.track.world import (
+    START_POSITION,
+    TRACK_SCALE,
+    TRACK_WIDTH,
+    TrackPoint,
+    sampled_track_centerline,
+    track_bounds,
+)
 
 START_HEADING_DEGREES = 90.0
 TRACK_CURB_GAP = 0.02 * TRACK_SCALE
@@ -75,6 +82,7 @@ WORLD_FLOOR_COLLISION_HALF_HEIGHT = 0.08
 WORLD_FLOOR_COLLISION_CENTER_Y = TRACK_SURFACE_Y - WORLD_FLOOR_COLLISION_HALF_HEIGHT
 NIGHT_SKY_COLOR = (0.012, 0.018, 0.038, 1.0)
 TRACK_LIGHT_SAMPLE_SPACING = 8
+TRACK_LIGHT_NOMINAL_SPACING_M = 14.0
 TRACK_LIGHT_POST_HEIGHT = 4.0 * TRACK_SCALE
 TRACK_LIGHT_HEAD_CENTER_Y = TRACK_LIGHT_POST_HEIGHT - 0.04 * TRACK_SCALE
 TRACK_LIGHT_SIDE_DISTANCE = TRACK_WIDTH / 2 + TRACK_EDGE_BUFFER + TRACK_WALL_THICKNESS + 0.60 * TRACK_SCALE
@@ -200,9 +208,11 @@ def add_world_floor(
     physics_world: Any,
     assets: SceneAssets,
     include_collision: bool = True,
+    samples: tuple[TrackPoint, ...] | None = None,
 ) -> None:
     """Draw the large ground plane under the whole track."""
-    bounds = track_bounds(margin=10 * TRACK_SCALE)
+    track_samples = sampled_track_centerline(samples_per_segment=10) if samples is None else samples
+    bounds = track_bounds(points=track_samples, margin=10 * TRACK_SCALE)
     center_x = (bounds.min_x + bounds.max_x) / 2
     center_z = (bounds.min_z + bounds.max_z) / 2
     floor_padding = 4 * TRACK_SCALE
@@ -218,7 +228,7 @@ def add_world_floor(
         color=(1, 1, 1, 1),
     )
     if include_collision:
-        add_world_floor_collision(physics_world=physics_world, render=ursina.scene)
+        add_world_floor_collision(physics_world=physics_world, render=ursina.scene, points=track_samples)
 
 
 def add_world_floor_collision(
@@ -248,17 +258,18 @@ def add_world_floor_collision(
     )
 
 
-def add_mugello_short_track(
+def add_track(
     *,
     ursina: Any,
     physics_world: Any,
     assets: SceneAssets,
+    samples: tuple[TrackPoint, ...],
     start_line_position: TrackPoint = START_POSITION,
     start_line_heading_degrees: float = START_HEADING_DEGREES,
     include_collision: bool = True,
+    legacy_lighting: bool = False,
 ) -> Any:
-    """Draw the default Mugello-inspired track and optional colliders."""
-    samples = sampled_track_centerline(samples_per_segment=10)
+    """Draw a centerline-driven racing track and optional colliders."""
     wall_inside_distance = TRACK_WIDTH / 2 + TRACK_EDGE_BUFFER
     track_light_receivers: list[Any] = []
 
@@ -349,7 +360,12 @@ def add_mugello_short_track(
             double_sided=True,
             unlit=True,
         )
-    _add_track_night_lights(ursina=ursina, samples=samples, receivers=tuple(track_light_receivers))
+    _add_track_night_lights(
+        ursina=ursina,
+        samples=samples,
+        receivers=tuple(track_light_receivers),
+        legacy_layout=legacy_lighting,
+    )
 
     if include_collision:
         add_mugello_short_track_collisions(physics_world=physics_world, render=ursina.scene)
@@ -359,6 +375,28 @@ def add_mugello_short_track(
         assets=assets,
         position=start_line_position,
         heading_degrees=start_line_heading_degrees,
+    )
+
+
+def add_mugello_short_track(
+    *,
+    ursina: Any,
+    physics_world: Any,
+    assets: SceneAssets,
+    start_line_position: TrackPoint = START_POSITION,
+    start_line_heading_degrees: float = START_HEADING_DEGREES,
+    include_collision: bool = True,
+) -> Any:
+    """Draw the default Mugello-inspired track and optional colliders."""
+    return add_track(
+        ursina=ursina,
+        physics_world=physics_world,
+        assets=assets,
+        samples=sampled_track_centerline(samples_per_segment=10),
+        start_line_position=start_line_position,
+        start_line_heading_degrees=start_line_heading_degrees,
+        include_collision=include_collision,
+        legacy_lighting=True,
     )
 
 
@@ -765,10 +803,16 @@ def add_racing_scene_collisions(
     add_mugello_short_track_collisions(physics_world=physics_world, render=render, samples=samples)
 
 
-def _add_track_night_lights(*, ursina: Any, samples: tuple[TrackPoint, ...], receivers: tuple[Any, ...]) -> None:
+def _add_track_night_lights(
+    *,
+    ursina: Any,
+    samples: tuple[TrackPoint, ...],
+    receivers: tuple[Any, ...],
+    legacy_layout: bool,
+) -> None:
     spotlights: list[TrackSpotlight] = []
-    for render_index, layout in enumerate(track_light_layouts(samples)):
-        if render_index in TRACK_REMOVED_STREETLIGHT_RENDER_INDICES:
+    for render_index, layout in enumerate(track_light_layouts(samples, legacy_layout=legacy_layout)):
+        if legacy_layout and render_index in TRACK_REMOVED_STREETLIGHT_RENDER_INDICES:
             continue
         lamp_x, _, lamp_z = layout.post
         head_x, _, head_z = layout.head
@@ -980,32 +1024,64 @@ def track_spotlight_fov_degrees(layout: TrackLightLayout) -> float:
     return degrees(2 * atan(TRACK_SPOTLIGHT_TARGET_RADIUS / target_distance))
 
 
-def track_light_layouts(samples: tuple[TrackPoint, ...]) -> tuple[TrackLightLayout, ...]:
+def track_light_layouts(
+    samples: tuple[TrackPoint, ...],
+    *,
+    legacy_layout: bool = True,
+) -> tuple[TrackLightLayout, ...]:
     """Return evenly spaced alternating lamp layouts around cleaned offset paths."""
     if len(samples) == 0:
         return ()
 
     post_paths = {side: clean_offset_path(samples, side * TRACK_LIGHT_SIDE_DISTANCE, 0.0) for side in (-1, 1)}
+    center_path = tuple((sample.x, 0.0, sample.z) for sample in samples)
+    if legacy_layout:
+        placement_fractions = tuple(
+            sample_index / len(samples) for sample_index in track_light_sample_indices(len(samples))
+        )
+    else:
+        centerline_length = sum(
+            hypot(
+                samples[(index + 1) % len(samples)].x - sample.x,
+                samples[(index + 1) % len(samples)].z - sample.z,
+            )
+            for index, sample in enumerate(samples)
+        )
+        light_count = max(4, 2 * round(centerline_length / (2 * TRACK_LIGHT_NOMINAL_SPACING_M)))
+        placement_fractions = tuple(index / light_count for index in range(light_count))
 
     layouts: list[TrackLightLayout] = []
-    for render_index, sample_index in enumerate(track_light_sample_indices(len(samples))):
-        side = TRACK_STREETLIGHT_SIDE_OVERRIDES_BY_RENDER_INDEX.get(
-            render_index,
-            -1 if render_index % 2 == 0 else 1,
+    for render_index, default_fraction in enumerate(placement_fractions):
+        default_side = -1 if render_index % 2 == 0 else 1
+        side = (
+            TRACK_STREETLIGHT_SIDE_OVERRIDES_BY_RENDER_INDEX.get(render_index, default_side)
+            if legacy_layout
+            else default_side
         )
-        fraction = TRACK_STREETLIGHT_FRACTION_OVERRIDES_BY_RENDER_INDEX.get(
-            render_index,
-            sample_index / len(samples),
+        fraction = (
+            TRACK_STREETLIGHT_FRACTION_OVERRIDES_BY_RENDER_INDEX.get(render_index, default_fraction)
+            if legacy_layout
+            else default_fraction
         )
-        post = _path_point_at_fraction(post_paths[side], fraction)
-        offset_x, offset_z = TRACK_STREETLIGHT_POST_OFFSETS_BY_RENDER_INDEX.get(render_index, (0.0, 0.0))
-        if offset_x != 0.0 or offset_z != 0.0:
-            post = (post[0] + offset_x, post[1], post[2] + offset_z)
-        center_x, center_z, distance_to_centerline, tangent_x, tangent_z = _nearest_centerline_frame(
-            samples,
-            x=post[0],
-            z=post[2],
-        )
+        if legacy_layout:
+            post = _path_point_at_fraction(post_paths[side], fraction)
+            offset_x, offset_z = TRACK_STREETLIGHT_POST_OFFSETS_BY_RENDER_INDEX.get(render_index, (0.0, 0.0))
+            if offset_x != 0.0 or offset_z != 0.0:
+                post = (post[0] + offset_x, post[1], post[2] + offset_z)
+            center_x, center_z, distance_to_centerline, tangent_x, tangent_z = _nearest_centerline_frame(
+                samples,
+                x=post[0],
+                z=post[2],
+            )
+        else:
+            center, tangent_x, tangent_z = _path_frame_at_fraction(center_path, fraction)
+            center_x, _, center_z = center
+            post = (
+                center_x - tangent_z * side * TRACK_LIGHT_SIDE_DISTANCE,
+                0.0,
+                center_z + tangent_x * side * TRACK_LIGHT_SIDE_DISTANCE,
+            )
+            distance_to_centerline = TRACK_LIGHT_SIDE_DISTANCE
         inward_x = -tangent_z
         inward_z = tangent_x
         if inward_x * (center_x - post[0]) + inward_z * (center_z - post[2]) < 0:
@@ -1177,9 +1253,11 @@ def add_trackside_scenery(
     assets: SceneAssets,
     start_line_position: TrackPoint = START_POSITION,
     start_line_heading_degrees: float = START_HEADING_DEGREES,
+    samples: tuple[TrackPoint, ...] | None = None,
 ) -> Any:
     """Add trees, lamps, and the start/finish gantry around the track."""
-    for index, position in enumerate(trackside_scenery_positions()):
+    track_samples = sampled_track_centerline(samples_per_segment=10) if samples is None else samples
+    for index, position in enumerate(trackside_scenery_positions(samples=track_samples)):
         x, y, z = position
         lit_entity(
             ursina,
@@ -1226,6 +1304,7 @@ def add_trackside_scenery(
         assets=assets,
         position=start_line_position,
         heading_degrees=start_line_heading_degrees,
+        samples=track_samples,
     )
 
 
@@ -1235,8 +1314,9 @@ def _add_start_finish_gantry(
     assets: SceneAssets,
     position: TrackPoint,
     heading_degrees: float,
+    samples: tuple[TrackPoint, ...] | None = None,
 ) -> StartFinishGantry:
-    samples = sampled_track_centerline(samples_per_segment=10)
+    track_samples = sampled_track_centerline(samples_per_segment=10) if samples is None else samples
     root = ursina.Entity(name="start-finish-gantry")
     negative_side_pole = _add_start_finish_banner_pole(
         ursina=ursina,
@@ -1263,7 +1343,7 @@ def _add_start_finish_gantry(
         positive_side_pole=positive_side_pole,
         banner_backing=banner_backing,
         banner_logo=banner_logo,
-        samples=samples,
+        samples=track_samples,
     )
     set_start_finish_gantry_pose(gantry, position=position, heading_degrees=heading_degrees)
     return gantry
@@ -1611,10 +1691,14 @@ def _start_finish_floor_argyle_mesh(ursina: Any) -> Any:
     return ursina.Mesh(vertices=vertices, triangles=triangles, uvs=uvs, normals=normals, static=True)
 
 
-def trackside_scenery_positions() -> tuple[tuple[float, float, float], ...]:
+def trackside_scenery_positions(
+    *,
+    samples: tuple[TrackPoint, ...] | None = None,
+) -> tuple[tuple[float, float, float], ...]:
     """List fixed decorative positions around the track."""
+    track_samples = sampled_track_centerline(samples_per_segment=10) if samples is None else samples
     bounds = track_bounds(
-        points=sampled_track_centerline(samples_per_segment=10),
+        points=track_samples,
         margin=TRACK_LIGHT_SIDE_DISTANCE + 4.0 * TRACK_SCALE,
     )
     inset = 2.0 * TRACK_SCALE

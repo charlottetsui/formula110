@@ -72,6 +72,19 @@ def test_parser_shares_seed_option_between_playable_and_head_to_head_modes() -> 
     assert global_head_to_head_args.seed == 273
 
 
+def test_parser_accepts_track_options_before_or_after_head_to_head_command() -> None:
+    parser = build_argument_parser()
+
+    playable_args = parser.parse_args(["--track-seed", "110"])
+    head_to_head_args = parser.parse_args(["h2h", "--track", "procedural", "--track-seed", "2026"])
+    global_head_to_head_args = parser.parse_args(["--track", "procedural", "--track-seed", "1893", "h2h"])
+
+    assert playable_args.track_seed == 110
+    assert head_to_head_args.track == "procedural"
+    assert head_to_head_args.track_seed == 2026
+    assert global_head_to_head_args.track_seed == 1893
+
+
 def test_parser_rejects_removed_vehicle_flag() -> None:
     with pytest.raises(SystemExit):
         build_argument_parser().parse_args(["--vehicle", "formula"])
@@ -145,6 +158,8 @@ def test_headless_cli_prints_json_result(
             str(controller_path),
             "--seed",
             "271",
+            "--track-seed",
+            "110",
             "--json",
         ]
     )
@@ -152,6 +167,8 @@ def test_headless_cli_prints_json_result(
     output = json.loads(capsys.readouterr().out)
     assert output == {"schema_version": 1, "summary": {"winner": "challenger"}}
     assert captured_arguments["random_seed"] == 271
+    assert captured_arguments["track_id"] == "procedural"
+    assert captured_arguments["track_seed"] == 110
 
 
 def test_cli_passes_human_recording_path_to_playable_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -185,6 +202,34 @@ def test_cli_passes_seed_to_playable_config(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert captured_config is not None
     assert captured_config.random_seed == 271
+
+
+def test_cli_uses_track_seed_shorthand_for_procedural_track(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_config: GameConfig | None = None
+
+    def fake_create_app(config: GameConfig) -> _FakeApp:
+        nonlocal captured_config
+        captured_config = config
+        return _FakeApp()
+
+    monkeypatch.setattr(cli, "create_app", fake_create_app)
+
+    cli.main(["--seed", "271", "--track-seed", "110"])
+
+    assert captured_config is not None
+    assert captured_config.random_seed == 271
+    assert captured_config.track_id == "procedural"
+    assert captured_config.track_seed == 110
+
+
+def test_cli_rejects_track_seed_for_static_track() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--track", "mugello-short", "--track-seed", "110"])
+
+
+def test_cli_requires_seed_for_procedural_track() -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--track", "procedural"])
 
 
 def test_cli_rejects_recording_an_automated_controller(tmp_path: Path) -> None:

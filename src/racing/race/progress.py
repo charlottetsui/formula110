@@ -7,9 +7,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from math import atan2, degrees, hypot
 
+from racing.track.procedural import TRACK_ID_PROCEDURAL, generate_procedural_track
 from racing.track.world import (
     START_POSITION,
     TRACK_ID_MUGELLO_SHORT,
+    TrackLayout,
     TrackPoint,
     sampled_track_centerline,
     track_layout_by_id,
@@ -53,6 +55,21 @@ class TrackProgressModel:
     total_length_m: float
     segment_projections: tuple[TrackProgressSegmentProjection, ...] = ()
     segment_headings_degrees: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedTrack:
+    """One selected course shared by rendering, physics, and race logic."""
+
+    layout: TrackLayout
+    samples: tuple[TrackPoint, ...]
+    model: TrackProgressModel
+    seed: int | None = None
+
+    @property
+    def track_id(self) -> str:
+        """Return the stable identifier for the resolved course."""
+        return self.layout.track_id
 
 
 @dataclass(slots=True)
@@ -158,13 +175,46 @@ def default_track_progress_model() -> TrackProgressModel:
     return track_progress_model_for_layout(TRACK_ID_MUGELLO_SHORT)
 
 
+@lru_cache(maxsize=128)
+def resolve_track(
+    track_id: str = TRACK_ID_MUGELLO_SHORT,
+    track_seed: int | None = None,
+) -> ResolvedTrack:
+    """Resolve a named or generated track into one canonical sample set and model."""
+    if track_id == TRACK_ID_PROCEDURAL:
+        if track_seed is None:
+            raise ValueError("procedural tracks require a track seed")
+        layout = generate_procedural_track(track_seed)
+        samples = layout.points
+        model = build_track_progress_model(samples)
+        return ResolvedTrack(layout=layout, samples=samples, model=model, seed=track_seed)
+    if track_seed is not None:
+        raise ValueError("track_seed is only valid for procedural tracks")
+
+    layout = track_layout_by_id(track_id)
+    samples = sampled_track_centerline(layout.points, samples_per_segment=10)
+    return ResolvedTrack(
+        layout=layout,
+        samples=samples,
+        model=_track_progress_model_for_layout(layout=layout, samples=samples),
+    )
+
+
 @lru_cache(maxsize=8)
 def track_progress_model_for_layout(track_id: str) -> TrackProgressModel:
     """Build lap-progress lookup data for one named track layout."""
     layout = track_layout_by_id(track_id)
     oriented_points = sampled_track_centerline(layout.points, samples_per_segment=10)
+    return _track_progress_model_for_layout(layout=layout, samples=oriented_points)
+
+
+def _track_progress_model_for_layout(
+    *,
+    layout: TrackLayout,
+    samples: tuple[TrackPoint, ...],
+) -> TrackProgressModel:
     start_line = TrackPoint(layout.start_position.x, layout.start_position.z, START_POSITION.label)
-    return build_track_progress_model(_rebased_track_points(oriented_points, start_line=start_line))
+    return build_track_progress_model(_rebased_track_points(samples, start_line=start_line))
 
 
 def build_track_progress_model(points: tuple[TrackPoint, ...]) -> TrackProgressModel:

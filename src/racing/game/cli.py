@@ -28,6 +28,8 @@ from racing.race.head_to_head import format_head_to_head_result, run_headless_he
 from racing.race.rules import HeadToHeadRaceRules, HeadToHeadScoring
 from racing.race.runtime import DEFAULT_RACE_RANDOM_SEED
 from racing.student.api import StudentControllerSubmission, load_student_submission
+from racing.track.procedural import TRACK_ID_PROCEDURAL
+from racing.track.world import TRACK_ID_MUGELLO_SHORT, track_layout_ids
 
 
 def _add_audio_arguments(parser: argparse.ArgumentParser) -> None:
@@ -43,6 +45,38 @@ def _add_color_argument(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_FORMULA_TEAM_COLOR,
         help="formula car paint color, as #RRGGBB or comma-separated 0.0-1.0 RGB(A)",
     )
+
+
+def _add_track_arguments(parser: argparse.ArgumentParser, *, suppress_defaults: bool = False) -> None:
+    parser.add_argument(
+        "--track",
+        choices=(*track_layout_ids(), TRACK_ID_PROCEDURAL),
+        default=argparse.SUPPRESS if suppress_defaults else None,
+        help="track layout; defaults to mugello-short, or procedural when --track-seed is supplied",
+    )
+    parser.add_argument(
+        "--track-seed",
+        type=int,
+        default=argparse.SUPPRESS if suppress_defaults else None,
+        help="generate and reproduce a procedural track with this seed",
+    )
+
+
+def _track_selection_from_args(
+    *,
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> tuple[str, int | None]:
+    requested_track = cast(str | None, getattr(args, "track", None))
+    track_seed = cast(int | None, getattr(args, "track_seed", None))
+    track_id = TRACK_ID_PROCEDURAL if requested_track is None and track_seed is not None else requested_track
+    if track_id is None:
+        return TRACK_ID_MUGELLO_SHORT, None
+    if track_id == TRACK_ID_PROCEDURAL and track_seed is None:
+        parser.error("--track procedural requires --track-seed")
+    if track_id != TRACK_ID_PROCEDURAL and track_seed is not None:
+        parser.error("--track-seed can only be combined with --track procedural")
+    return track_id, track_seed
 
 
 def _audio_config_from_args(args: argparse.Namespace) -> RacingAudioConfig:
@@ -84,6 +118,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RACE_RANDOM_SEED,
         help="seed for the deterministic random starting position",
     )
+    _add_track_arguments(parser)
     parser.add_argument(
         "--record-human",
         type=Path,
@@ -158,6 +193,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="seed for deterministic random starting positions",
     )
+    _add_track_arguments(h2h_parser, suppress_defaults=True)
     h2h_parser.add_argument("--win-margin-m", type=float, default=1.0, help="distance margin required for a win")
     h2h_parser.add_argument(
         "--scoring",
@@ -267,6 +303,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_argument_parser()
     args = parser.parse_args(argv)
     human_recording_path = cast(Path | None, args.record_human)
+    track_id, track_seed = _track_selection_from_args(parser=parser, args=args)
 
     if getattr(args, "command", None) == "h2h":
         if human_recording_path is not None:
@@ -341,6 +378,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     race_count=int(args.races),
                     round_seconds=float(args.round_seconds),
                     random_seed=int(args.seed),
+                    track_id=track_id,
+                    track_seed=track_seed,
                     win_margin_m=rules.win_margin_m,
                     rules=rules,
                     window_type=cast(str | None, args.window_type),
@@ -377,6 +416,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             race_count=int(args.races),
             round_seconds=float(args.round_seconds),
             random_seed=int(args.seed),
+            track_id=track_id,
+            track_seed=track_seed,
             rules=rules,
             challenger_copies=challenger_copies,
             incumbent_copies=incumbent_copies,
@@ -406,6 +447,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             student_controller=None if student_submission is None else student_submission.controller,
             fixed_delta_seconds=float(args.fixed_delta_seconds),
             random_seed=int(args.seed),
+            track_id=track_id,
+            track_seed=track_seed,
             window_type=cast(str | None, args.window_type),
             human_recording_path=human_recording_path,
             team_color=_student_submission_color(student_submission, _team_color_from_args(args)),
